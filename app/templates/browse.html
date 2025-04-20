@@ -1,0 +1,28 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-4">Browse Items for Sale</h2>
+    <div class="row">
+        {% for product in products %}
+        <div class="col-md-4 mb-4">
+            <div class="card bg-dark text-light h-100">
+                {% if product.image_file %}
+                <img src="{{ url_for('static', filename='uploads/' ~ product.image_file) }}" class="card-img-top" alt="{{ product.title }}">
+                {% endif %}
+                <div class="card-body">
+                    <h5 class="card-title">{{ product.title }}</h5>
+                    <p class="card-text">{{ product.description }}</p>
+                    <p class="card-text fw-bold">${{ product.price }}</p>
+                    <p class="card-text small">Seller: {{ product.seller.username }}</p>
+                    <a href="{{ url_for('main.contact', seller_id=product.seller.id, product_id=product.id) }}" class="btn btn-outline-info btn-sm mt-2">Contact Seller</a>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12">
+            <div class="alert alert-info text-center">No items available. Check back later!</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

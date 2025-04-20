@@ -1,0 +1,42 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">Transaction History</h2>
+    {% if not bought_orders and not sold_orders %}
+        <div class="alert alert-info text-center">No history yet. Start by <a href="/sell">selling</a> or <a href="/browse">browsing</a>!</div>
+    {% else %}
+    <div class="row">
+        <div class="col-md-6">
+            <h4>Purchases</h4>
+            {% if bought_orders %}
+                <ul class="list-group mb-4">
+                    {% for order in bought_orders %}
+                        <li class="list-group-item bg-dark text-light">
+                            <strong>{{ order.product.title }}</strong> - ${{ order.product.price }}<br>
+                            <span class="small">Status: {{ order.status }} | Date: {{ order.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="text-muted">No purchases made yet.</p>
+            {% endif %}
+        </div>
+        <div class="col-md-6">
+            <h4>Sales</h4>
+            {% if sold_orders %}
+                <ul class="list-group mb-4">
+                    {% for order in sold_orders %}
+                        <li class="list-group-item bg-dark text-light">
+                            <strong>{{ order.product.title }}</strong> - ${{ order.product.price }}<br>
+                            <span class="small">Sold to: {{ order.buyer.username }} | Date: {{ order.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="text-muted">No sales yet.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
