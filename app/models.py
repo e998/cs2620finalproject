@@ -26,7 +26,7 @@ class Order(db.Model):
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     status = db.Column(db.String(20), default='Pending')
-    product = db.relationship('Product', backref='order', uselist=False)
+    product = db.relationship('Product', backref=db.backref('order', uselist=False))
 
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -37,7 +37,19 @@ class Message(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     deleted_by_sender = db.Column(db.Boolean, default=False)
     deleted_by_receiver = db.Column(db.Boolean, default=False)
+    is_read = db.Column(db.Boolean, default=False)
 
     sender = db.relationship('User', foreign_keys=[sender_id])
     receiver = db.relationship('User', foreign_keys=[receiver_id])
     product = db.relationship('Product')
+
+class Offer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='Pending')  # Pending, Accepted, Rejected
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    product = db.relationship('Product')
+    buyer = db.relationship('User', foreign_keys=[buyer_id])
+    seller = db.relationship('User', foreign_keys=[seller_id])

@@ -14,7 +14,16 @@
                     <p class="card-text">{{ product.description }}</p>
                     <p class="card-text fw-bold">${{ product.price }}</p>
                     <p class="card-text small">Seller: {{ product.seller.username }}</p>
-                    <a href="{{ url_for('main.contact', seller_id=product.seller.id, product_id=product.id) }}" class="btn btn-outline-info btn-sm mt-2">Contact Seller</a>
+                    <div class="d-flex gap-2">
+                        <a href="{{ url_for('main.contact', seller_id=product.seller.id, product_id=product.id) }}" class="btn btn-outline-info btn-sm">Contact Seller</a>
+                        {% if product.id in pending_offer_product_ids %}
+                            <button class="btn btn-secondary btn-sm" disabled>Proposal Sent</button>
+                        {% else %}
+                            <form method="POST" action="{{ url_for('main.buy_proposal', product_id=product.id) }}" class="m-0 p-0">
+                                <button type="submit" class="btn btn-success btn-sm">Buy</button>
+                            </form>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>

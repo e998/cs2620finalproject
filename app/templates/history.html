@@ -1,6 +1,7 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="container">
+<div class="container mt-4">
+    <h2>Welcome {{ current_user.username }}!</h2>
     <h2 class="mb-4">Transaction History</h2>
     {% if not bought_orders and not sold_orders %}
         <div class="alert alert-info text-center">No history yet. Start by <a href="/sell">selling</a> or <a href="/browse">browsing</a>!</div>

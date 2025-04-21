@@ -52,10 +52,20 @@
               <a class="nav-link" href="/sell">Sell</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="/my_listings">My Listings</a>
+              <a class="nav-link position-relative" href="/my_listings">
+                My Listings
+                {% if pending_offer_count and pending_offer_count > 0 %}
+                  <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark">{{ pending_offer_count }}</span>
+                {% endif %}
+              </a>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="{{ url_for('main.chats') }}">Chats</a>
+              <a class="nav-link position-relative" href="{{ url_for('main.chats') }}">
+                Chats
+                {% if unread_count and unread_count > 0 %}
+                  <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">{{ unread_count }}</span>
+                {% endif %}
+              </a>
             </li>
             <li class="nav-item">
               <a class="nav-link" href="/logout">Logout</a>

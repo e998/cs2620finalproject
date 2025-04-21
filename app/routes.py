@@ -1,19 +1,22 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, session
+from flask import Blueprint, render_template, redirect, url_for, flash, request, session, g
 from flask_login import login_user, logout_user, current_user, login_required
 from .forms import LoginForm, RegistrationForm, SellForm
-from .models import User, Product, Message
+from .models import User, Product, Message, Offer, Order
 from werkzeug.security import check_password_hash, generate_password_hash
 from . import db
 from .utils import save_picture
 from flask_socketio import emit, join_room, leave_room
 from . import socketio
+from sqlalchemy import or_, and_
 
 main = Blueprint('main', __name__)
 
 @main.route('/')
 @login_required
 def home():
-    return redirect(url_for('main.history'))
+    # Count unread messages for current user
+    unread_count = Message.query.filter_by(receiver_id=current_user.id, is_read=False, deleted_by_receiver=False).count()
+    return redirect(url_for('main.history', unread_count=unread_count))
 
 @main.route('/login', methods=['GET', 'POST'])
 def login():
@@ -52,25 +55,29 @@ def register():
 @main.route('/history')
 @login_required
 def history():
+    unread_count = Message.query.filter_by(receiver_id=current_user.id, is_read=False, deleted_by_receiver=False).count()
     bought_orders = current_user.orders  # Orders where user is the buyer
-    sold_orders = []
-    for product in current_user.listings:
-        if product.is_sold and product.order:
-            sold_orders.append(product.order)
-    return render_template('history.html', bought_orders=bought_orders, sold_orders=sold_orders)
-
+    sold_orders = [product.order for product in current_user.listings if product.is_sold and product.order]
+    return render_template('history.html', bought_orders=bought_orders, sold_orders=sold_orders, unread_count=unread_count)
+    
 @main.route('/my_listings')
 @login_required
 def my_listings():
-    listings = current_user.listings
-    return render_template('my_listings.html', listings=listings)
+    listings = Product.query.filter_by(seller_id=current_user.id).all()
+    # Show pending offers for user's listings
+    offers = Offer.query.filter_by(seller_id=current_user.id, status='Pending').all()
+    pending_offer_count = len(offers)
+    return render_template('my_listings.html', listings=listings, offers=offers, pending_offer_count=pending_offer_count)
 
 @main.route('/browse')
 @login_required
 def browse():
     # Show all products not sold and not listed by current user
     products = Product.query.filter_by(is_sold=False).filter(Product.seller_id != current_user.id).all()
-    return render_template('browse.html', products=products)
+    # Pending offers for current user
+    pending_offers = Offer.query.filter_by(buyer_id=current_user.id, status='Pending').all()
+    pending_offer_product_ids = set(offer.product_id for offer in pending_offers)
+    return render_template('browse.html', products=products, pending_offer_product_ids=pending_offer_product_ids)
 
 @main.route('/sell', methods=['GET', 'POST'])
 @login_required
@@ -124,10 +131,60 @@ def delete_listing(product_id):
     flash('Listing deleted.', 'info')
     return redirect(url_for('main.my_listings'))
 
+@main.route('/buy_proposal/<int:product_id>', methods=['POST'])
+@login_required
+def buy_proposal(product_id):
+    product = Product.query.get_or_404(product_id)
+    if product.is_sold or product.seller_id == current_user.id:
+        flash('You cannot buy this item.', 'danger')
+        return redirect(url_for('main.browse'))
+    # Check if offer already exists
+    existing = Offer.query.filter_by(product_id=product_id, buyer_id=current_user.id, status='Pending').first()
+    if existing:
+        flash('You have already sent a buy proposal for this item.', 'info')
+        return redirect(url_for('main.browse'))
+    offer = Offer(product_id=product_id, buyer_id=current_user.id, seller_id=product.seller_id)
+    db.session.add(offer)
+    db.session.commit()
+    flash('Buy proposal sent to the seller!', 'success')
+    return redirect(url_for('main.browse'))
+
+@main.route('/accept_offer/<int:offer_id>', methods=['POST'])
+@login_required
+def accept_offer(offer_id):
+    offer = Offer.query.get_or_404(offer_id)
+    if offer.seller_id != current_user.id or offer.status != 'Pending':
+        flash('Invalid offer.', 'danger')
+        return redirect(url_for('main.my_listings'))
+    offer.status = 'Accepted'
+    # Mark product as sold
+    product = Product.query.get(offer.product_id)
+    product.is_sold = True
+    db.session.commit()
+    # Create transaction history for buyer and seller
+    order = Order(product_id=offer.product_id, buyer_id=offer.buyer_id, status='Completed')
+    db.session.add(order)
+    db.session.commit()
+    flash(f'Congrats! You have successfully sold {product.title}. Please contact the buyer via chat to discuss payment and shipping options.', 'success')
+    return redirect(url_for('main.my_listings'))
+
+@main.route('/cancel_offer/<int:offer_id>', methods=['POST'])
+@login_required
+def cancel_offer(offer_id):
+    offer = Offer.query.get_or_404(offer_id)
+    if offer.seller_id != current_user.id or offer.status != 'Pending':
+        flash('Invalid offer.', 'danger')
+        return redirect(url_for('main.my_listings'))
+    offer.status = 'Rejected'
+    db.session.commit()
+    flash(f'Offer for {offer.product.title} has been cancelled.', 'info')
+    return redirect(url_for('main.my_listings'))
+
 @main.route('/chats')
 @login_required
 def chats():
-    # Get all distinct open chats for the current user (as sender or receiver, not deleted)
+    unread_count = Message.query.filter_by(receiver_id=current_user.id, is_read=False, deleted_by_receiver=False).count()
+    # Only include messages not deleted for the current user
     sent = Message.query.filter_by(sender_id=current_user.id, deleted_by_sender=False).all()
     received = Message.query.filter_by(receiver_id=current_user.id, deleted_by_receiver=False).all()
     chat_partners = {}
@@ -139,18 +196,21 @@ def chats():
             chat_partners[key] = m
     # Sort chats by most recent message
     sorted_chats = sorted(chat_partners.values(), key=lambda x: x.timestamp, reverse=True)
-    return render_template('chats.html', chats=sorted_chats, current_user=current_user)
+    return render_template('chats.html', chats=sorted_chats, current_user=current_user, unread_count=unread_count)
 
 @main.route('/delete_chat/<int:other_id>/<int:product_id>', methods=['POST'])
 @login_required
 def delete_chat(other_id, product_id):
     # Soft delete all messages for this chat for current user
-    Message.query.filter(
-        ((Message.sender_id == current_user.id) & (Message.receiver_id == other_id) | (Message.sender_id == other_id) & (Message.receiver_id == current_user.id)) & (Message.product_id == product_id)
-    ).update({
-        Message.deleted_by_sender: True if Message.sender_id == current_user.id else Message.deleted_by_sender,
-        Message.deleted_by_receiver: True if Message.receiver_id == current_user.id else Message.deleted_by_receiver
-    }, synchronize_session=False)
+    messages = Message.query.filter(
+        ((Message.sender_id == current_user.id) & (Message.receiver_id == other_id) | (Message.sender_id == other_id) & (Message.receiver_id == current_user.id)) &
+        (Message.product_id == product_id)
+    ).all()
+    for msg in messages:
+        if msg.sender_id == current_user.id:
+            msg.deleted_by_sender = True
+        if msg.receiver_id == current_user.id:
+            msg.deleted_by_receiver = True
     db.session.commit()
     flash('Chat deleted.', 'info')
     return redirect(url_for('main.chats'))
@@ -164,7 +224,11 @@ def contact(seller_id, product_id):
     messages = Message.query.filter(
         ((Message.sender_id == current_user.id) & (Message.receiver_id == seller_id) | (Message.sender_id == seller_id) & (Message.receiver_id == current_user.id)) & (Message.product_id == product_id)
     ).order_by(Message.timestamp.asc()).all()
-    return render_template('chat.html', seller=seller, product=product, messages=messages)
+    # Mark all received messages as read
+    Message.query.filter_by(receiver_id=current_user.id, sender_id=seller_id, product_id=product_id, is_read=False).update({Message.is_read: True}, synchronize_session=False)
+    db.session.commit()
+    unread_count = Message.query.filter_by(receiver_id=current_user.id, is_read=False, deleted_by_receiver=False).count()
+    return render_template('chat.html', seller=seller, product=product, messages=messages, unread_count=unread_count)
 
 @main.route('/logout')
 @login_required
@@ -191,3 +255,12 @@ def handle_chat_message(data):
         'message': data['message'],
         'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M')
     }, room=data['room'])
+
+def inject_offer_badge():
+    if current_user.is_authenticated:
+        pending_offer_count = Offer.query.filter_by(seller_id=current_user.id, status='Pending').count()
+    else:
+        pending_offer_count = 0
+    return dict(pending_offer_count=pending_offer_count)
+
+main.context_processor(inject_offer_badge)
