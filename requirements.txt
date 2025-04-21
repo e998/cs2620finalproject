@@ -7,5 +7,6 @@ bootstrap-flask>=2.3.3
 psycopg2-binary
 python-dotenv
 email-validator
+requests
 Flask-SocketIO
 redis
