@@ -2,11 +2,13 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_socketio import SocketIO
+from dotenv import load_dotenv
 import os
 
 # Initialize extensions
 db = SQLAlchemy()
 login_manager = LoginManager()
+load_dotenv()
 socketio = SocketIO(cors_allowed_origins="*", message_queue=os.environ.get('REDIS_URL', 'redis://'))
 
 # Flask-Login user loader setup
@@ -23,7 +25,7 @@ def create_app():
 
     db.init_app(app)
     login_manager.init_app(app)
-    login_manager.login_view = 'login'
+    login_manager.login_view = 'main.login'
     socketio.init_app(app)
 
     from .routes import main
