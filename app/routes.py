@@ -20,12 +20,13 @@ REPLICATION_QUEUE_FILE = 'replication_queue.json'
 
 # --- Leader Election and State ---
 LEADER_NODE = os.environ.get('LEADER_NODE_URL')  # initial value, will be updated in memory
-PORT = int(os.environ.get('PORT', '5000'))
+PORT = int(os.environ.get('PORT', '8080'))
 PEERS = [p for p in os.environ.get('PEER_NODES', '').split(',') if p]
 local_store = {}
 replication_queue = []
 
 leader_lock = threading.Lock()
+last_alive_peers = set()
 
 # --- Persistent distributed state ---
 def load_store():
@@ -55,7 +56,9 @@ replication_queue = load_replication_queue()
 
 # --- Heartbeat and Leader Election ---
 def get_my_url():
-    return f"http://localhost:{PORT}"
+    ip = os.environ.get('MY_IP') 
+    port = os.environ.get('PORT', 8080)
+    return f"http://{ip}:{port}"
 
 def is_leader():
     with leader_lock:
@@ -81,7 +84,6 @@ def login():
         return redirect(url_for('main.home'))
     form = LoginForm()
     if form.validate_on_submit():
-        print("Login attempt for:", form.username.data)
         user = User.query.filter_by(username=form.username.data).first()
         if user and check_password_hash(user.password, form.password.data):
             login_user(user)
@@ -389,14 +391,16 @@ def heartbeat():
 # Background thread for leader election and heartbeat
 
 def leader_election():
-    global LEADER_NODE
+    global LEADER_NODE, last_alive_peers
     while True:
         time.sleep(3)
         if is_leader():
+            print(f"[Leader Election] I am the leader: {get_my_url()}")
             continue  # I'm the leader
         try:
             r = requests.get(f"{LEADER_NODE}/heartbeat", timeout=1)
             if r.status_code == 200:
+                print(f"[Leader Election] Current leader: {LEADER_NODE}")
                 continue  # Leader alive
         except Exception:
             pass  # Leader down, need election
@@ -410,13 +414,20 @@ def leader_election():
                     alive.append(peer)
             except Exception:
                 continue
+        # Log new peers
+        new_peers = set(alive) - last_alive_peers
+        for peer in new_peers:
+            if peer != get_my_url():
+                print(f"[Peer Join] New peer detected: {peer}")
+        last_alive_peers.clear()
+        last_alive_peers.update(alive)
         if alive:
             new_leader = sorted(alive)[0]  # Lowest URL (port)
             set_leader(new_leader)
             print(f"[Leader Election] New leader: {new_leader}")
         else:
             set_leader(get_my_url())  # Default to self if alone
-            print("[Leader Election] No peers alive, self is leader.")
+            print(f"[Leader Election] No peers alive, self is leader.")
 
 threading.Thread(target=leader_election, daemon=True).start()
 
