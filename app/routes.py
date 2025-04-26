@@ -15,8 +15,12 @@ import json
 import threading
 import time
 
+import shared
+from .logs import *
+
 STORE_FILE = 'distributed_store.json'
 REPLICATION_QUEUE_FILE = 'replication_queue.json'
+log_data = []
 
 # --- Leader Election and State ---
 LEADER_NODE = os.environ.get('LEADER_NODE_URL')  # initial value, will be updated in memory
@@ -68,6 +72,7 @@ def set_leader(new_leader):
     global LEADER_NODE
     with leader_lock:
         LEADER_NODE = new_leader
+        shared.cluster_status['leader'] = new_leader
 
 main = Blueprint('main', __name__)
 
@@ -87,6 +92,7 @@ def login():
         user = User.query.filter_by(username=form.username.data).first()
         if user and check_password_hash(user.password, form.password.data):
             login_user(user)
+            add_log("User Login")
             flash('Logged in successfully!', 'success')
             return redirect(url_for('main.home'))
         else:
@@ -108,6 +114,7 @@ def register():
         user = User(username=form.username.data, email=form.email.data, password=hashed_pw)
         db.session.add(user)
         db.session.commit()
+        add_log("New Registration")
         flash('Account created! Please log in.', 'success')
         return redirect(url_for('main.login'))
     return render_template('register.html', form=form)
@@ -163,6 +170,7 @@ def sell():
         )
         db.session.add(product)
         db.session.commit()
+        add_log("New Listing Made")
         flash('Your item has been listed for sale!', 'success')
         return redirect(url_for('main.my_listings'))
     return render_template('sell.html', form=form)
@@ -186,6 +194,7 @@ def edit_listing(product_id):
         if form.picture.data:
             product.image_file = save_picture(form.picture.data)
         db.session.commit()
+        add_log("Listing Updated")
         flash('Listing updated.', 'success')
         return redirect(url_for('main.my_listings'))
     return render_template('sell.html', form=form, edit=True)
@@ -201,6 +210,7 @@ def delete_listing(product_id):
         return redirect(url_for('main.my_listings'))
     db.session.delete(product)
     db.session.commit()
+    add_log("Listing Deleted")
     flash('Listing deleted.', 'info')
     return redirect(url_for('main.my_listings'))
 
@@ -221,6 +231,7 @@ def buy_proposal(product_id):
     offer = Offer(product_id=product_id, buyer_id=current_user.id, seller_id=product.seller_id)
     db.session.add(offer)
     db.session.commit()
+    add_log("Successful Buyer Proposal Made")
     flash('Buy proposal sent to the seller!', 'success')
     return redirect(url_for('main.browse'))
 
@@ -251,6 +262,7 @@ def accept_offer(offer_id):
     order = Order(product_id=offer.product_id, buyer_id=offer.buyer_id, status='Completed')
     db.session.add(order)
     db.session.commit()
+    add_log("Successful Sale")
     flash(f'Congrats! You have successfully sold {product.title}. All other pending offers have been canceled. Please contact the buyer via chat to discuss payment and shipping options.', 'success')
     return redirect(url_for('main.my_listings'))
 
@@ -265,6 +277,7 @@ def cancel_offer(offer_id):
         return redirect(url_for('main.my_listings'))
     offer.status = 'Rejected'
     db.session.commit()
+    add_log("Offer Cancelled")
     flash(f'Offer for {offer.product.title} has been cancelled.', 'info')
     return redirect(url_for('main.my_listings'))
 
@@ -284,8 +297,16 @@ def delete_chat(other_id, product_id):
         if msg.receiver_id == current_user.id:
             msg.deleted_by_receiver = True
     db.session.commit()
+    add_log("Chat Deleted")
     flash('Chat deleted.', 'info')
     return redirect(url_for('main.chats'))
+
+###
+@main.route('/set_leader', methods=['POST'])
+def set_leader_route():
+    leader_url = request.json['leader']
+    set_leader(leader_url)
+    return jsonify({'status': 'ok', 'leader': leader_url})
 
 @socketio.on('chat_message')
 def handle_chat_message(data):
@@ -346,6 +367,7 @@ def chats():
 @login_required
 def logout():
     logout_user()
+    add_log("User Logged Out")
     flash('You have been logged out.', 'info')
     return redirect(url_for('main.login'))
 
@@ -396,14 +418,25 @@ def leader_election():
         time.sleep(3)
         if is_leader():
             print(f"[Leader Election] I am the leader: {get_my_url()}")
+            shared.cluster_status = {
+                "leader": LEADER_NODE,
+                "alive": list(last_alive_peers)
+            }
             continue  # I'm the leader
         try:
             r = requests.get(f"{LEADER_NODE}/heartbeat", timeout=1)
             if r.status_code == 200:
                 print(f"[Leader Election] Current leader: {LEADER_NODE}")
+                shared.cluster_status = {
+                    "leader": LEADER_NODE,
+                    "alive": list(last_alive_peers)
+                }
                 continue  # Leader alive
         except Exception:
             pass  # Leader down, need election
+
+        shared.cluster_status['alive'] = []
+
         # Try to find new leader
         candidates = [get_my_url()] + PEERS
         alive = []
@@ -412,6 +445,7 @@ def leader_election():
                 r = requests.get(f"{peer}/heartbeat", timeout=1)
                 if r.status_code == 200:
                     alive.append(peer)
+                    shared.cluster_status['alive'].append(peer)
             except Exception:
                 continue
         # Log new peers
@@ -419,6 +453,25 @@ def leader_election():
         for peer in new_peers:
             if peer != get_my_url():
                 print(f"[Peer Join] New peer detected: {peer}")
+
+                ###
+                try:
+                    # Tell the new peer who the leader is
+                    requests.post(f"{peer}/set_leader", json={"leader": LEADER_NODE}, timeout=2)
+
+                    # Send the entire current key-value store to the new peer
+                    # for key, value in local_store.items():
+                    #     requests.post(f"{peer}/replicate", json={"key": key, "value": value}, timeout=2)
+                    for key, value in local_store.items():
+                        try:
+                            requests.post(f"{peer}/replicate", json={"key": key, "value": value}, timeout=2)
+                        except Exception as e:
+                            replication_queue.append({'peer': peer, 'key': key, 'value': value})
+                            save_replication_queue(replication_queue)
+                            print(f"[Peer Sync] Queued failed replication to {peer}: {e}")
+                except Exception as e:
+                    print(f"[Peer Sync] Failed to sync new peer {peer}: {e}")
+        
         last_alive_peers.clear()
         last_alive_peers.update(alive)
         if alive:
@@ -428,6 +481,13 @@ def leader_election():
         else:
             set_leader(get_my_url())  # Default to self if alone
             print(f"[Leader Election] No peers alive, self is leader.")
+
+        shared.cluster_status = {
+            "leader": LEADER_NODE,
+            "alive": alive
+        }
+        print(f"Updated cluster status: {shared.cluster_status}")
+
 
 threading.Thread(target=leader_election, daemon=True).start()
 
@@ -440,10 +500,12 @@ def retry_replications():
         for item in queue_copy:
             peer, key, value = item['peer'], item['key'], item['value']
             try:
-                requests.post(f'{peer}/replicate', json={'key': key, 'value': value}, timeout=1)
-                replication_queue.remove(item)
-                save_replication_queue(replication_queue)
-            except Exception:
+                r = requests.post(f'{peer}/replicate', json={'key': key, 'value': value}, timeout=1)
+                if r.status_code == 200:
+                    replication_queue.remove(item)
+                    save_replication_queue(replication_queue)
+            except Exception as e:
+                print(f"[Retry] Still failed to replicate to {peer}: {e}")
                 continue
 threading.Thread(target=retry_replications, daemon=True).start()
 
@@ -478,3 +540,52 @@ def inject_offer_badge():
     return dict(pending_offer_count=pending_offer_count)
 
 main.context_processor(inject_offer_badge)
+
+
+###
+from datetime import datetime
+call_data = []
+
+def my_function():
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    call_data.append({
+        "time": timestamp,
+        "count": len(call_data) + 1
+    })
+
+# Background job that calls the function every second
+def background_job():
+    while True:
+        my_function()
+        time.sleep(1)
+
+@main.route("/health")
+def index():
+    return render_template("health.html", data=call_data)
+
+@main.route("/data")
+def get_data():
+    return jsonify(call_data)
+
+@main.route("/cluster_status")
+def get_cluster_status():
+    print("Current status:", shared.cluster_status)
+    return jsonify(shared.cluster_status)
+
+# @main.route("/logs")
+# def get_logs():
+#     return jsonify(log_data)
+
+@main.route("/log_sale", methods=["POST"])
+def log_sale():
+    add_log("Sale made!")
+    return jsonify({"status": "ok"})
+
+@main.route("/log_listing", methods=["POST"])
+def log_listing():
+    add_log("New listing posted!")
+    return jsonify({"status": "ok"})
+
+@main.route("/logs")
+def get_logs():
+    return jsonify(collect_logs())
