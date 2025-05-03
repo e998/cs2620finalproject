@@ -1,33 +1,102 @@
 {% extends 'layout.html' %}
 {% block content %}
+<style>
+    body {
+        background: #f9f9fb;
+        color: #222;
+    }
+    .dashboard-card {
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 2px 12px rgba(255, 255, 255, 0.07);
+        border: 1px solid #e5e7eb;
+        padding: 28px 24px 20px 24px;
+        margin-bottom: 36px;
+    }
+    .dashboard-badge {
+        font-size: 1.1em;
+        padding: 8px 14px;
+        border-radius: 8px;
+        margin-right: 8px;
+        display: inline-block;
+        margin-bottom: 6px;
+    }
+    .leader-badge { background: #5e72e4; color: #fff; }
+    .live-badge { background: #2dce89; color: #fff; }
+    .secondary-badge { background: #d1d5db; color: #fff; }
+    .dashboard-header {
+        font-size: 1.25em;
+        font-weight: 700;
+        margin-bottom: 16px;
+        color: #222;
+        letter-spacing: 0.01em;
+    }
+    .dashboard-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+        margin-bottom: 28px;
+    }
+    .dashboard-col {
+        flex: 1 1 320px;
+        min-width: 320px;
+        max-width: 48%;
+    }
+    .activity-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Fira Mono', monospace;
+        background: #fff;
+    }
+    .activity-table th, .activity-table td {
+        padding: 10px 14px;
+        text-align: left;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .activity-table tr:nth-child(even) {
+        background: #fafbfc;
+    }
+    .activity-table th {
+        background: #f3f4f6;
+        color: #5e72e4;
+        border-top: 1px solid #e5e7eb;
+    }
+</style>
 <div class="container py-5">
     <div class="text-center mb-5">
-        <h2 class="display-4">Distributed System Health</h2>
-        <p class="lead">Monitor and visualize system health metrics to ensure availability, detect failures, and analyze overall system performance for DistSales.</p>
+        <h2 class="display-4" style="color:#222">Distributed System Health</h2>
+        <p class="lead" style="color:#444">Monitor and visualize system health metrics to ensure availability, detect failures, and analyze overall system performance for DistSales.</p>
     </div>
-
-    <div class="row">
-        <div class="col-md-6 mb-4">
-            <h5>Leader Identity</h5>
-            <span id="leaderName" class="badge bg-primary">Loading...</span>
+    <div class="dashboard-row">
+        <div class="dashboard-col">
+            <div class="dashboard-card">
+                <div class="dashboard-header">🏆 Leader Identity</div>
+                <span id="leaderName" class="dashboard-badge leader-badge">Loading...</span>
+            </div>
         </div>
-        <div class="col-md-6 mb-4">
-            <h5>Live Connections</h5>
-            <ul id="aliveList" class="list-unstyled"></ul>
-        </div>
-        <div class="col-md-6 mb-4">
-            <h5>Sales</h5>
-            <canvas id="salesChart"></canvas>
+        <div class="dashboard-col">
+            <div class="dashboard-card">
+                <div class="dashboard-header">🔗 Live Connections</div>
+                <ul id="aliveList" class="list-unstyled" style="margin-bottom:0;"></ul>
+            </div>
         </div>
     </div>
-    <div class="mt-4 text-start">
-        <h5>Activity Logs</h5>
-        <ul id="activity-log" class="list-group">
-            <li class="list-group-item">Loading...</li>
-        </ul>
+    <div class="dashboard-card mb-4">
+        <div class="dashboard-header">📈 Sales</div>
+        <canvas id="salesChart"></canvas>
+    </div>
+    <div class="dashboard-card mt-4 text-start">
+        <div class="dashboard-header">📝 Activity Logs</div>
+        <table class="activity-table" id="activity-log-table">
+            <thead>
+                <tr><th>Timestamp</th><th>Event</th></tr>
+            </thead>
+            <tbody id="activity-log">
+                <tr><td colspan="2">Loading...</td></tr>
+            </tbody>
+        </table>
     </div>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     async function updateClusterStatus() {
@@ -37,29 +106,24 @@
 
             // Update leader badge
             const leaderEl = document.getElementById('leaderName');
-            // leaderEl.textContent = data.leader;
             const leader = data.leader.length > 0 ? data.leader[0].client : 'None';
             leaderEl.textContent = leader;
-            leaderEl.className = 'badge bg-primary';
+            leaderEl.className = 'dashboard-badge leader-badge';
 
             // Update list of peers
             const aliveList = document.getElementById('aliveList');
             aliveList.innerHTML = '';
 
             data.alive.forEach(peer => {
-            const li = document.createElement('li');
-            const badge = document.createElement('span');
-
-            badge.textContent = peer.client;
-            badge.className = peer.client === leader ? 'badge bg-success me-1' : 'badge bg-secondary me-1';
-
-            li.appendChild(badge);
-            aliveList.appendChild(li);
+                const li = document.createElement('li');
+                const badge = document.createElement('span');
+                badge.textContent = peer.client;
+                badge.className = peer.client === leader ? 'dashboard-badge live-badge me-1' : 'dashboard-badge secondary-badge me-1';
+                li.appendChild(badge);
+                aliveList.appendChild(li);
             });
-
-            console.log("Updated cluster status:", data);
         } catch (err) {
-            console.error("Failed to fetch cluster status:", err);
+            console.error('Failed to update cluster status', err);
         }
     }
 
@@ -67,77 +131,67 @@
         try {
             const res = await fetch('/activity_log');
             const data = await res.json();
-
-            const logList = document.getElementById('activity-log');
-            logList.innerHTML = '';
-
-            if (data.length === 0) {
-                logList.innerHTML = '<li class="list-group-item">No recent activity</li>';
-                return;
-            }
-
+            const logTable = document.getElementById('activity-log');
+            logTable.innerHTML = '';
             data.forEach(entry => {
-                const li = document.createElement('li');
-                li.className = 'list-group-item';
-                li.textContent = `[${entry.timestamp}] ${entry.activity}`;
-                logList.appendChild(li);
+                const tr = document.createElement('tr');
+                const [timestamp, ...eventParts] = entry.split('] ');
+                const event = eventParts.join('] ');
+                tr.innerHTML = `<td>${timestamp.replace('[','')}</td><td>${event}</td>`;
+                logTable.appendChild(tr);
             });
         } catch (err) {
-            console.error("Failed to load activity log:", err);
+            const logTable = document.getElementById('activity-log');
+            logTable.innerHTML = '<tr><td colspan="2">Failed to load logs</td></tr>';
         }
     }
-
-    loadActivityLog();
-
-    setInterval(() => {
-        updateClusterStatus();
-        loadActivityLog();
-    }, 1000);
-</script>
-
-<canvas id="salesChart" width="400" height="200"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-    const ctx = document.getElementById('salesChart').getContext('2d');
-
-    let salesChart2 = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [{label: 'Sales', data: [], borderColor: 'rgb(255, 99, 132)', tension: 0.3}]},
-        options: {
-            responsive: true,
-            animation: false,
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
-        }
-    });
 
     async function fetchDataAndUpdateChart() {
         try {
-            const response = await fetch('/sales-data');
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            const res = await fetch('/sales_data');
+            const data = await res.json();
+            if (window.salesChartInstance) {
+                window.salesChartInstance.data.labels = data.labels;
+                window.salesChartInstance.data.datasets[0].data = data.values;
+                window.salesChartInstance.update();
+            } else {
+                const ctx = document.getElementById('salesChart').getContext('2d');
+                window.salesChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: 'Sales',
+                            data: data.values,
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.12)',
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { display: true, labels: { color: '#222' } }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#222' }, grid: { color: '#eee' } },
+                            y: { ticks: { color: '#222' }, grid: { color: '#eee' } }
+                        }
+                    }
+                });
             }
-        const data = await response.json();
-        
-        if (data.labels.length == 0) {
-            salesChart.data.labels = ['No Data'];
-            salesChart.data.datasets[0].data = [0];
-        }
-
-        salesChart.data.labels = data.labels;
-        salesChart.data.datasets[0].data = data.counts;
-        salesChart.update();
-        } catch (error) {
-                console.error("Failed to fetch or update chart:", error);
+        } catch (err) {
+            console.error('Failed to fetch/update sales chart', err);
         }
     }
 
+    // Initial load
+    loadActivityLog();
+    updateClusterStatus();
     fetchDataAndUpdateChart();
+    setInterval(updateClusterStatus, 5000);
+    setInterval(loadActivityLog, 5000);
     setInterval(fetchDataAndUpdateChart, 5000);
 </script>
 {% endblock %}

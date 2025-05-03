@@ -1,0 +1,147 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container py-5">
+    <div class="text-center mb-5">
+        <h2 class="display-4">Distributed System Health</h2>
+        <p class="lead">Monitor and visualize system health metrics to ensure availability, detect failures, and analyze overall system performance for DistSales.</p>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <h5>Leader Identity</h5>
+            <span id="leaderName" class="badge bg-primary">Loading...</span>
+        </div>
+        <div class="col-md-6 mb-4">
+            <h5>Live Connections</h5>
+            <ul id="aliveList" class="list-unstyled"></ul>
+        </div>
+        <div class="col-md-6 mb-4">
+            <h5>Replication Lag</h5>
+            <canvas id="chart3"></canvas>
+        </div>
+        <div class="col-md-6 mb-4">
+            <h5>Client-Side Latency</h5>
+            <canvas id="chart4"></canvas>
+        </div>
+    </div>
+    <div class="mt-4 text-start">
+        <h5>Activity Logs</h5>
+        <ul id="log-list"></ul>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let rawData = '{{ data | tojson | safe }}';
+    let initialData = JSON.parse(rawData);
+
+    function getLabelsAndCounts(data) {
+        return {
+            labels: data.map(entry => entry.time),
+            counts: data.map(entry => entry.count)
+        };
+    }
+
+    function createChart(ctxId, label, color) {
+        const ctx = document.getElementById(ctxId).getContext('2d');
+        const { labels, counts } = getLabelsAndCounts(initialData);
+
+        return new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: label,
+                    data: counts,
+                    borderColor: color,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 }
+                    }
+                }
+            }
+        });
+    }
+
+    const chart3 = createChart('chart3', 'Third Metric', 'rgb(54, 162, 235)');
+    const chart4 = createChart('chart4', 'Fourth Metric', 'rgb(255, 206, 86)');
+
+    async function updateCharts() {
+        const res = await fetch('/data');
+        const data = await res.json();
+        const { labels, counts } = getLabelsAndCounts(data);
+
+        [chart3, chart4].forEach(chart => {
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = counts;
+            chart.update();
+        });
+    }
+
+    async function updateClusterStatus() {
+        try {
+            const res = await fetch('/cluster_status');
+            const data = await res.json();
+
+            // Update leader badge
+            const leaderEl = document.getElementById('leaderName');
+            leaderEl.textContent = data.leader;
+            leaderEl.className = 'badge bg-primary';
+
+            // Update list of peers
+            const aliveList = document.getElementById('aliveList');
+            aliveList.innerHTML = '';
+
+            const allPeers = [data.leader, ...data.alive.filter(p => p !== data.leader)];
+            allPeers.forEach(peer => {
+                const li = document.createElement('li');
+                const badge = document.createElement('span');
+
+                badge.textContent = peer;
+                badge.className = peer === data.leader ? 'badge bg-success me-1' : 'badge bg-secondary me-1';
+
+                li.appendChild(badge);
+                aliveList.appendChild(li);
+            });
+
+            console.log("Updated cluster status:", data);
+        } catch (err) {
+            console.error("Failed to fetch cluster status:", err);
+        }
+    }
+
+    // function fetchLogs() {
+    //     fetch('/logs')
+    //         .then(response => response.json())
+    //         .then(data => {
+    //             const logList = document.getElementById('log-list');
+    //             logList.innerHTML = '';
+
+    //             data.forEach(log => {
+    //                 const li = document.createElement('li');
+    //                 li.textContent = `[${log.time}] ${log.event}`;
+    //                 logList.appendChild(li);
+    //             });
+    //         });
+    // }
+    async function fetchLogs() {
+            const res = await fetch("/logs");
+            const data = await res.json();
+            document.getElementById("log-list").innerHTML = data.map(log => `<p>${log.time} - ${log.event}</p>`).join("");
+        }
+        setInterval(fetchLogs, 2000);
+
+    setInterval(() => {
+        updateCharts();
+        updateClusterStatus();
+        fetchLogs();
+    }, 1000);
+</script>
+{% endblock %}
