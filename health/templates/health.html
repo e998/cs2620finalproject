@@ -1,0 +1,143 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container py-5">
+    <div class="text-center mb-5">
+        <h2 class="display-4">Distributed System Health</h2>
+        <p class="lead">Monitor and visualize system health metrics to ensure availability, detect failures, and analyze overall system performance for DistSales.</p>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <h5>Leader Identity</h5>
+            <span id="leaderName" class="badge bg-primary">Loading...</span>
+        </div>
+        <div class="col-md-6 mb-4">
+            <h5>Live Connections</h5>
+            <ul id="aliveList" class="list-unstyled"></ul>
+        </div>
+        <div class="col-md-6 mb-4">
+            <h5>Sales</h5>
+            <canvas id="salesChart"></canvas>
+        </div>
+    </div>
+    <div class="mt-4 text-start">
+        <h5>Activity Logs</h5>
+        <ul id="activity-log" class="list-group">
+            <li class="list-group-item">Loading...</li>
+        </ul>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    async function updateClusterStatus() {
+        try {
+            const res = await fetch('/cluster_status');
+            const data = await res.json();
+
+            // Update leader badge
+            const leaderEl = document.getElementById('leaderName');
+            // leaderEl.textContent = data.leader;
+            const leader = data.leader.length > 0 ? data.leader[0].client : 'None';
+            leaderEl.textContent = leader;
+            leaderEl.className = 'badge bg-primary';
+
+            // Update list of peers
+            const aliveList = document.getElementById('aliveList');
+            aliveList.innerHTML = '';
+
+            data.alive.forEach(peer => {
+            const li = document.createElement('li');
+            const badge = document.createElement('span');
+
+            badge.textContent = peer.client;
+            badge.className = peer.client === leader ? 'badge bg-success me-1' : 'badge bg-secondary me-1';
+
+            li.appendChild(badge);
+            aliveList.appendChild(li);
+            });
+
+            console.log("Updated cluster status:", data);
+        } catch (err) {
+            console.error("Failed to fetch cluster status:", err);
+        }
+    }
+
+    async function loadActivityLog() {
+        try {
+            const res = await fetch('/activity_log');
+            const data = await res.json();
+
+            const logList = document.getElementById('activity-log');
+            logList.innerHTML = '';
+
+            if (data.length === 0) {
+                logList.innerHTML = '<li class="list-group-item">No recent activity</li>';
+                return;
+            }
+
+            data.forEach(entry => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item';
+                li.textContent = `[${entry.timestamp}] ${entry.activity}`;
+                logList.appendChild(li);
+            });
+        } catch (err) {
+            console.error("Failed to load activity log:", err);
+        }
+    }
+
+    loadActivityLog();
+
+    setInterval(() => {
+        updateClusterStatus();
+        loadActivityLog();
+    }, 1000);
+</script>
+
+<canvas id="salesChart" width="400" height="200"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('salesChart').getContext('2d');
+
+    let salesChart2 = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{label: 'Sales', data: [], borderColor: 'rgb(255, 99, 132)', tension: 0.3}]},
+        options: {
+            responsive: true,
+            animation: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    async function fetchDataAndUpdateChart() {
+        try {
+            const response = await fetch('/sales-data');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+        const data = await response.json();
+        
+        if (data.labels.length == 0) {
+            salesChart.data.labels = ['No Data'];
+            salesChart.data.datasets[0].data = [0];
+        }
+
+        salesChart.data.labels = data.labels;
+        salesChart.data.datasets[0].data = data.counts;
+        salesChart.update();
+        } catch (error) {
+                console.error("Failed to fetch or update chart:", error);
+        }
+    }
+
+    fetchDataAndUpdateChart();
+    setInterval(fetchDataAndUpdateChart, 5000);
+</script>
+{% endblock %}

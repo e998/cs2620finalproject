@@ -1,4 +1,4 @@
-from . import db
+from shared.extensions import db
 from flask_login import UserMixin
 from datetime import datetime
 
@@ -53,3 +53,22 @@ class Offer(db.Model):
     product = db.relationship('Product')
     buyer = db.relationship('User', foreign_keys=[buyer_id])
     seller = db.relationship('User', foreign_keys=[seller_id])
+
+class Clients(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client = db.Column(db.String(256))
+    leader = db.Column(db.Boolean, default=False)
+    time_start = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'client': self.client,
+            'leader': self.leader,
+            'time_start': self.time_start.isoformat() if self.time_start else None
+        }
+    
+class Activity(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(256))
+    activitytime = db.Column(db.DateTime, default=datetime.utcnow)
