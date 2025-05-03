@@ -135,9 +135,7 @@
             logTable.innerHTML = '';
             data.forEach(entry => {
                 const tr = document.createElement('tr');
-                const [timestamp, ...eventParts] = entry.split('] ');
-                const event = eventParts.join('] ');
-                tr.innerHTML = `<td>${timestamp.replace('[','')}</td><td>${event}</td>`;
+                tr.innerHTML = `<td>${entry.timestamp}</td><td>${entry.activity}</td>`;
                 logTable.appendChild(tr);
             });
         } catch (err) {
@@ -152,7 +150,7 @@
             const data = await res.json();
             if (window.salesChartInstance) {
                 window.salesChartInstance.data.labels = data.labels;
-                window.salesChartInstance.data.datasets[0].data = data.values;
+                window.salesChartInstance.data.datasets[0].data = data.counts;
                 window.salesChartInstance.update();
             } else {
                 const ctx = document.getElementById('salesChart').getContext('2d');
@@ -162,7 +160,7 @@
                         labels: data.labels,
                         datasets: [{
                             label: 'Sales',
-                            data: data.values,
+                            data: data.counts,
                             borderColor: '#e74c3c',
                             backgroundColor: 'rgba(231, 76, 60, 0.12)',
                             fill: true,
