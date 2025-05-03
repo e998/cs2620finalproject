@@ -87,6 +87,10 @@
     </div>
     <div class="dashboard-card mt-4 text-start">
         <div class="dashboard-header">📝 Activity Logs</div>
+        <label for="eventFilter"><strong>Filter by Event:</strong></label>
+        <select id="eventFilter" class="form-select" style="width:auto; display:inline-block; margin-left:8px; margin-bottom:16px;">
+          <option value="all">All</option>
+        </select>
         <table class="activity-table" id="activity-log-table">
             <thead>
                 <tr><th>Timestamp</th><th>Event</th></tr>
@@ -127,22 +131,48 @@
         }
     }
 
+    let allLogs = [];
+
     async function loadActivityLog() {
         try {
             const res = await fetch('/activity_log');
             const data = await res.json();
-            const logTable = document.getElementById('activity-log');
-            logTable.innerHTML = '';
-            data.forEach(entry => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${entry.timestamp}</td><td>${entry.activity}</td>`;
-                logTable.appendChild(tr);
-            });
+            allLogs = data;
+            updateEventFilterOptions();
+            renderActivityLogTable();
         } catch (err) {
             const logTable = document.getElementById('activity-log');
             logTable.innerHTML = '<tr><td colspan="2">Failed to load logs</td></tr>';
         }
     }
+
+    function updateEventFilterOptions() {
+        const filter = document.getElementById('eventFilter');
+        const events = Array.from(new Set(allLogs.map(entry => entry.activity)));
+        filter.innerHTML = '<option value="all">All</option>' + events.map(ev => `<option value="${ev}">${ev}</option>`).join('');
+    }
+
+    function renderActivityLogTable() {
+        const logTable = document.getElementById('activity-log');
+        const filterValue = document.getElementById('eventFilter').value;
+        let filtered = allLogs;
+        if (filterValue !== 'all') {
+            filtered = allLogs.filter(entry => entry.activity === filterValue);
+        }
+        logTable.innerHTML = '';
+        filtered.forEach(entry => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${entry.timestamp}</td><td>${entry.activity}</td>`;
+            logTable.appendChild(tr);
+        });
+        if (filtered.length === 0) {
+            logTable.innerHTML = '<tr><td colspan="2">No logs for this event</td></tr>';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('eventFilter').addEventListener('change', renderActivityLogTable);
+    });
 
     async function fetchDataAndUpdateChart() {
         try {

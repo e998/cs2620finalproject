@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, render_template, redirect, url_for, flash, request, session, g
 from datetime import datetime, timedelta
-from sqlalchemy import func
+from sqlalchemy import func, Integer, text
 
 import sys
 import os
@@ -33,10 +33,11 @@ def sales_data():
     now = datetime.utcnow()
     day_ago = now - timedelta(days=1)
 
-    # sales = Order.query.filter_by(status='Completed').all()
     sales = (
         db.session.query(
-            func.date_trunc('minute', Order.timestamp).label('time'),
+            # 5-minute buckets
+            (func.date_trunc('hour', Order.timestamp) + \
+             (func.floor(func.extract('minute', Order.timestamp) / 5) * 5).cast(Integer) * text("interval '1 minute'")).label('time'),
             func.count().label('count')
         )
         .filter(Order.status == 'Completed', Order.timestamp >= day_ago)
