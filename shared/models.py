@@ -59,6 +59,9 @@ class Clients(db.Model):
     client = db.Column(db.String(256))
     leader = db.Column(db.Boolean, default=False)
     time_start = db.Column(db.DateTime, default=datetime.utcnow)
+    became_leader_at = db.Column(db.DateTime, nullable=True)
+    last_connected = db.Column(db.DateTime, nullable=True)
+    last_disconnected = db.Column(db.DateTime, nullable=True)
 
     def to_dict(self):
         return {

@@ -14,6 +14,7 @@ from flask import jsonify
 import json
 import threading
 import time
+from datetime import datetime
 
 STORE_FILE = 'distributed_store.json'
 REPLICATION_QUEUE_FILE = 'replication_queue.json'
@@ -74,32 +75,26 @@ def get_my_url():
 def is_leader():
     with leader_lock:
         leader = get_my_url()
-        from health import create_healthapp
-        app = create_healthapp()
-        with app.app_context():
-            currleader = Clients.query.filter_by(client=leader).first()
-            if currleader:
-                currleader.leader = True
-            else:
-                currleader = Clients(client=leader, leader=True)
-                db.session.add(currleader)
-            db.session.commit()
-        return LEADER_NODE == get_my_url()
+        set_leader(leader)
+    return LEADER_NODE == get_my_url()
 
-def set_leader(new_leader):
+def set_leader(new_leader_url):
     global LEADER_NODE
-    with leader_lock:
-        LEADER_NODE = new_leader
-        from health import create_healthapp
-        app = create_healthapp()
-        with app.app_context():
-            currleader = Clients.query.filter_by(client=new_leader).first()
-            if currleader:
-                currleader.leader = True
+    LEADER_NODE = new_leader_url
+    from health import create_healthapp
+    app = create_healthapp()
+    with app.app_context():
+        all_clients = Clients.query.all()
+        for client in all_clients:
+            if client.client == new_leader_url:
+                if not client.leader:
+                    client.became_leader_at = datetime.utcnow()
+                client.leader = True
             else:
-                currleader = Clients(client=new_leader, leader=True)
-                db.session.add(currleader)
-            db.session.commit()
+                if client.leader:
+                    client.became_leader_at = None
+                client.leader = False
+        db.session.commit()
 
 main = Blueprint('main', __name__)
 
@@ -449,11 +444,26 @@ def get_key(key):
 def heartbeat():
     return jsonify({'status': 'alive', 'port': PORT})
 
-# Background thread for leader election and heartbeat
+@main.route('/cluster_status')
+def cluster_status():
+    # Get all clients and their info
+    clients = Clients.query.all()
+    return jsonify({
+        'leader': LEADER_NODE,
+        'clients': [
+            {
+                'client': c.client,
+                'leader': c.leader,
+                'last_connected': c.last_connected.isoformat() if c.last_connected else 'N/A',
+                'last_disconnected': c.last_disconnected.isoformat() if c.last_disconnected else 'N/A'
+            }
+            for c in clients
+        ]
+    })
 
+# Background thread for leader election and heartbeat
 def leader_election():
     global LEADER_NODE, last_alive_peers
-
     from health import create_healthapp
     app = create_healthapp()
 
@@ -461,78 +471,60 @@ def leader_election():
         time.sleep(3)
 
         with app.app_context():
-            if is_leader():
-                print(f"[Leader Election] I am the leader: {get_my_url()}")
-                continue  # I'm the leader
-            try:
-                r = requests.get(f"{LEADER_NODE}/heartbeat", timeout=1)
-                if r.status_code == 200:
-                    print(f"[Leader Election] Current leader: {LEADER_NODE}")
-                    continue  # Leader alive
-            except Exception:
-                db.session.query(Clients).update({Clients.leader: False})
-                db.session.commit()
-                pass
-
-            # Try to find new leader
-            candidates = [get_my_url()] + PEERS
+            # Gather all candidates (self + peers) with no duplicates
+            candidates = []
+            for peer in [get_my_url()] + PEERS:
+                if peer not in candidates:
+                    candidates.append(peer)
             alive = []
             for peer in candidates:
                 try:
                     r = requests.get(f"{peer}/heartbeat", timeout=1)
                     if r.status_code == 200:
                         alive.append(peer)
-                        existing_clients = Clients.query.filter_by(client=peer).first()
-                        if not existing_clients:
-                            clients = Clients(client=peer)
-                            db.session.add(clients)
-                        db.session.commit()
                 except Exception:
                     continue
 
-            if len(alive) == 0:
-                all_clients = Clients.query.all()
-                for client in all_clients:
-                    obj = Clients.query.get(client.id)
-                    db.session.delete(obj)
-                    db.session.commit()
-
+            # Ensure all alive peers are present in the Clients table and update last_connected
+            now = datetime.utcnow()
+            for peer in alive:
+                client = Clients.query.filter_by(client=peer).first()
+                if not client:
+                    client = Clients(client=peer)
+                    db.session.add(client)
+                    if not client.last_connected:
+                        client.last_connected = now  # Set on first discovery
+                        client.last_disconnected = None # Clear disconnect on first discovery
+                else:
+                    # If client exists, check if it needs its status updated
+                    # Update last_connected ONLY if previously disconnected OR if it was somehow null
+                    if (client.last_disconnected and (not client.last_connected or client.last_disconnected > client.last_connected)) or not client.last_connected:
+                        client.last_connected = now
+                        client.last_disconnected = None # Clear disconnect since it's alive again
+                
+            # Mark clients not in alive list as disconnected
+            # Only mark as disconnected if it wasn't already disconnected
             all_clients = Clients.query.all()
-            actual_alive = set(peer.rstrip('/').lower() for peer in alive)
             for client in all_clients:
-                if client.client.rstrip('/').lower() not in actual_alive:
-                    obj = Clients.query.get(client.id)
-                    db.session.delete(obj)
-                    db.session.commit()
+                if client.client not in alive and not client.last_disconnected:
+                    client.last_disconnected = now
+            db.session.commit()
 
-            # Log new peers
-            new_peers = set(alive) - last_alive_peers
-            for peer in new_peers:
-                if peer != get_my_url():
-                    print(f"[Peer Join] New peer detected: {peer}")
-
-            last_alive_peers.clear()
-            last_alive_peers.update(alive)
+            # Debug: print alive list every cycle
+            print(f"[Leader Election] Alive nodes: {alive}")
 
             if alive:
-                new_leader = sorted(alive)[0]  # Lowest URL (port)
+                # Always select the lowest (sorted) peer as leader
+                new_leader = sorted(alive)[0]
                 set_leader(new_leader)
-                print(f"[Leader Election] New leader: {new_leader}")
-            else:
-                if get_my_url():
-                    set_leader(get_my_url())  # Default to self if alone
-                    print(f"[Leader Election] No peers alive, self is leader.")
+                if get_my_url() == new_leader:
+                    print(f"[Leader Election] I am the leader: {get_my_url()}")
                 else:
-                    LEADER_NODE = None
-                    db.session.query(Clients).update({Clients.leader: False})
-                    db.session.commit()
-                    
-                    # all_clients = Clients.query.all()
-                    # for client in all_clients:
-                    #     obj = Clients.query.get(client.id)
-                    #     db.session.delete(obj)
-                    #     db.session.commit()
-                    print("[Leader Election] No peers alive, no leader.")
+                    print(f"[Leader Election] Current leader: {new_leader}")
+            else:
+                # No alive peers, default to self as leader
+                set_leader(get_my_url())
+                print(f"[Leader Election] No peers alive, self is leader.")
 
 threading.Thread(target=leader_election, daemon=True).start()
 

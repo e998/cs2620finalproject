@@ -22,8 +22,8 @@
         margin-bottom: 6px;
     }
     .leader-badge { background: #5e72e4; color: #fff; }
-    .live-badge { background: #2dce89; color: #fff; }
-    .secondary-badge { background: #d1d5db; color: #fff; }
+    .live-badge { background: #888888; color: #fff; }
+    .secondary-badge { background: #888888; color: #fff; }
     .dashboard-header {
         font-size: 1.25em;
         font-weight: 700;
@@ -72,18 +72,46 @@
             <div class="dashboard-card">
                 <div class="dashboard-header">🏆 Leader Identity</div>
                 <span id="leaderName" class="dashboard-badge leader-badge">Loading...</span>
+                <div id="leaderTimestamp" style="margin-top:10px; color:#888; font-size:0.95em"></div>
             </div>
         </div>
         <div class="dashboard-col">
             <div class="dashboard-card">
-                <div class="dashboard-header">🔗 Live Connections</div>
-                <ul id="aliveList" class="list-unstyled" style="margin-bottom:0;"></ul>
+                <div class="dashboard-header">🔗 Connections</div>
+                <ul id="aliveList"
+                    class="list-unstyled"
+                    style="margin-bottom:0; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding-left: 0; gap: 1rem; min-height: 50px;">
+                </ul>
             </div>
         </div>
     </div>
-    <div class="dashboard-card mb-4">
-        <div class="dashboard-header">📈 Sales</div>
-        <canvas id="salesChart"></canvas>
+    <div class="dashboard-row">
+        <div class="dashboard-col">
+            <div class="dashboard-card">
+                <div class="dashboard-header">⏱️ API Latency by Endpoint</div>
+                <canvas id="latencyBarChart"></canvas>
+            </div>
+        </div>
+        <div class="dashboard-col">
+            <div class="dashboard-card">
+                <div class="dashboard-header">📊 API Call Count by Endpoint</div>
+                <canvas id="callCountBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="dashboard-row">
+        <div class="dashboard-col" style="max-width:600px;">
+            <div class="dashboard-card mb-4">
+                <div class="dashboard-header">📈 Sales</div>
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+        <div class="dashboard-col" style="max-width:600px;">
+            <div id="usageStatsCard" class="dashboard-card mb-4">
+                <div class="dashboard-header">📋 Usage Statistics</div>
+                <div id="usageStatsContent">Loading...</div>
+            </div>
+        </div>
     </div>
     <div class="dashboard-card mt-4 text-start">
         <div class="dashboard-header">📝 Activity Logs</div>
@@ -113,21 +141,77 @@
             const leader = data.leader.length > 0 ? data.leader[0].client : 'None';
             leaderEl.textContent = leader;
             leaderEl.className = 'dashboard-badge leader-badge';
+            const leaderTimestamp = document.getElementById('leaderTimestamp');
+            leaderTimestamp.textContent = data.leader.length > 0 ? `Became leader at: ${data.leader[0].became_leader_at || 'N/A'}` : '';
 
-            // Update list of peers
+            if (data.clients) {
+                const clientsRow = document.getElementById('clients-row');
+                clientsRow.innerHTML = '';
+                data.clients.forEach(client => {
+                    // Simplified Parsing (assuming backend sends ISO 8601 like 'YYYY-MM-DD HH:MM:SS')
+                    let lastConn = client.last_connected && client.last_connected !== 'N/A' ? new Date(client.last_connected + 'Z') : null; 
+                    let lastDisc = client.last_disconnected && client.last_disconnected !== 'N/A' ? new Date(client.last_disconnected + 'Z') : null;
+
+                    let isConnected = false;
+                    let connectedDisplay = client.last_connected || 'N/A';
+                    let disconnectedDisplay = client.last_disconnected || 'N/A';
+
+                    // Determine status based on parsed dates
+                    if (!lastDisc) { 
+                        isConnected = !!lastConn;
+                        disconnectedDisplay = 'N/A';
+                    } else if (lastConn && lastConn > lastDisc) { 
+                        isConnected = true;
+                    } else { 
+                        isConnected = false;
+                    }
+
+                    // Render each client as a fixed-width flex box
+                    const clientDiv = document.createElement('div');
+                    clientDiv.style.flex = '0 0 auto'; 
+                    clientDiv.style.width = '280px'; 
+                    clientDiv.style.margin = '0 8px'; 
+                    clientDiv.style.display = 'flex';
+                    clientDiv.style.flexDirection = 'column';
+                    clientDiv.style.alignItems = 'center';
+                    clientDiv.style.justifyContent = 'center';
+                    clientDiv.style.padding = '18px 10px 12px 10px';
+                    clientDiv.style.borderRadius = '14px';
+                    clientDiv.style.background = isConnected ? '#d1d5db' : '#d1d5db';
+                    clientDiv.style.color = isConnected ? '#fff' : '#888';
+                    clientDiv.style.boxShadow = '0 2px 12px rgba(0,0,0,0.04)';
+                    clientDiv.style.fontWeight = '500';
+                    clientDiv.style.fontSize = '1.2em';
+                    clientDiv.style.transition = 'background 0.3s';
+                    clientDiv.innerHTML = `
+                        <div style="word-break:break-all;">${client.client}</div>
+                        <div style="font-size:0.95em; color:#d1d5db;">Connected: ${connectedDisplay}</div>
+                        <div style="font-size:0.95em; color:#d1d5db;">Disconnected: ${disconnectedDisplay}</div>
+                    `;
+                    clientsRow.appendChild(clientDiv);
+                });
+            }
+
             const aliveList = document.getElementById('aliveList');
             aliveList.innerHTML = '';
-
-            data.alive.forEach(peer => {
-                const li = document.createElement('li');
-                const badge = document.createElement('span');
-                badge.textContent = peer.client;
-                badge.className = peer.client === leader ? 'dashboard-badge live-badge me-1' : 'dashboard-badge secondary-badge me-1';
-                li.appendChild(badge);
-                aliveList.appendChild(li);
-            });
-        } catch (err) {
-            console.error('Failed to update cluster status', err);
+            if (data.alive) {
+                data.alive.forEach(peer => {
+                    const li = document.createElement('li');
+                    const badge = document.createElement('span');
+                    badge.textContent = peer.client;
+                    badge.className = peer.client === leader ? 'dashboard-badge live-badge me-1' : 'dashboard-badge secondary-badge me-1';
+                    li.appendChild(badge);
+                    let info = '';
+                    info += `<span style='color:#2dce89;font-size:0.92em'>Connected: ${peer.last_connected || 'N/A'}</span>`;
+                    info += `<br><span style='color:#e74c3c;font-size:0.92em'>Disconnected: ${peer.last_disconnected || 'N/A'}</span>`;
+                    const infoDiv = document.createElement('div');
+                    infoDiv.innerHTML = info;
+                    li.appendChild(infoDiv);
+                    aliveList.appendChild(li);
+                });
+            }
+        } catch (error) {
+            console.error('>>> ERROR in updateClusterStatus <<<', error); 
         }
     }
 
@@ -170,9 +254,103 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        document.getElementById('eventFilter').addEventListener('change', renderActivityLogTable);
-    });
+    // --- API Metrics ---
+    let latencyChartInstance = null;
+    let callCountChartInstance = null;
+    async function fetchAndRenderApiMetrics() {
+        try {
+            const res = await fetch('/api_metrics');
+            const data = await res.json();
+            // Remove 'usage' from endpoints
+            const endpoints = Object.keys(data).filter(k => k !== 'usage');
+            const avgLatencies = endpoints.map(ep => data[ep].avg_time);
+            const callCounts = endpoints.map(ep => data[ep].count);
+
+            // Latency Bar Chart
+            const latencyCtx = document.getElementById('latencyBarChart').getContext('2d');
+            if (latencyChartInstance) {
+                latencyChartInstance.data.labels = endpoints;
+                latencyChartInstance.data.datasets[0].data = avgLatencies;
+                latencyChartInstance.update();
+            } else {
+                latencyChartInstance = new Chart(latencyCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: endpoints,
+                        datasets: [{
+                            label: 'Avg Latency (s)',
+                            data: avgLatencies,
+                            backgroundColor: '#5e72e4',
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#222' }, grid: { color: '#eee' } },
+                            y: { ticks: { color: '#222' }, grid: { color: '#eee' } }
+                        }
+                    }
+                });
+            }
+
+            // Call Count Bar Chart
+            const countCtx = document.getElementById('callCountBarChart').getContext('2d');
+            if (callCountChartInstance) {
+                callCountChartInstance.data.labels = endpoints;
+                callCountChartInstance.data.datasets[0].data = callCounts;
+                callCountChartInstance.update();
+            } else {
+                callCountChartInstance = new Chart(countCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: endpoints,
+                        datasets: [{
+                            label: 'Call Count',
+                            data: callCounts,
+                            backgroundColor: '#2dce89',
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#222' }, grid: { color: '#eee' } },
+                            y: { ticks: { color: '#222' }, grid: { color: '#eee' } }
+                        }
+                    }
+                });
+            }
+
+            // Usage statistics
+            const usage = data.usage;
+            // Calculate additional metrics
+            const endpointCount = endpoints.length;
+            const avgApiLatency = endpoints.length > 0 ? (avgLatencies.reduce((a, b) => a + b, 0) / endpoints.length).toFixed(4) : 0;
+            const maxLatency = endpoints.length > 0 ? Math.max(...avgLatencies).toFixed(4) : 0;
+            const minLatency = endpoints.length > 0 ? Math.min(...avgLatencies).toFixed(4) : 0;
+            const endpointWithMaxLatency = endpoints.length > 0 ? endpoints[avgLatencies.indexOf(Math.max(...avgLatencies))] : 'N/A';
+            const endpointWithMinLatency = endpoints.length > 0 ? endpoints[avgLatencies.indexOf(Math.min(...avgLatencies))] : 'N/A';
+            const endpointWithMaxCalls = endpoints.length > 0 ? endpoints[callCounts.indexOf(Math.max(...callCounts))] : 'N/A';
+            const endpointWithMinCalls = endpoints.length > 0 ? endpoints[callCounts.indexOf(Math.min(...callCounts))] : 'N/A';
+
+            let usageHtml = `<div class='row g-3'>`
+                + `<div class='col-12 col-md-6'><b>Total API Calls:</b> <span style='color:#e74c3c'>${usage.total_calls}</span></div>`
+                + `<div class='col-12 col-md-6'><b>Number of Endpoints:</b> <span style='color:#5e72e4'>${endpointCount}</span></div>`
+                + `<div class='col-12 col-md-6'><b>Most Called Endpoint:</b> <span style='color:#5e72e4'>${usage.most_called || 'N/A'}</span></div>`
+                + `<div class='col-12 col-md-6'><b>Least Called Endpoint:</b> <span style='color:#2dce89'>${endpointWithMinCalls}</span></div>`
+                + `<div class='col-12 col-md-6'><b>Average API Latency:</b> <span style='color:#e67e22'>${avgApiLatency}s</span></div>`
+                + `<div class='col-12 col-md-6'><b>Max API Latency:</b> <span style='color:#e74c3c'>${maxLatency}s</span> <small>(${endpointWithMaxLatency})</small></div>`
+                + `<div class='col-12 col-md-6'><b>Min API Latency:</b> <span style='color:#2dce89'>${minLatency}s</span> <small>(${endpointWithMinLatency})</small></div>`
+                + `</div>`;
+            let usageStatsContent = document.getElementById('usageStatsContent');
+            if (usageStatsContent) {
+                usageStatsContent.innerHTML = usageHtml;
+            }
+        } catch (err) {
+            console.error('Failed to fetch/render API metrics', err);
+        }
+    }
 
     async function fetchDataAndUpdateChart() {
         try {
@@ -215,11 +393,16 @@
     }
 
     // Initial load
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('eventFilter').addEventListener('change', renderActivityLogTable);
+        fetchAndRenderApiMetrics();
+    });
     loadActivityLog();
     updateClusterStatus();
     fetchDataAndUpdateChart();
     setInterval(updateClusterStatus, 5000);
     setInterval(loadActivityLog, 5000);
     setInterval(fetchDataAndUpdateChart, 5000);
+    setInterval(fetchAndRenderApiMetrics, 5000);
 </script>
 {% endblock %}

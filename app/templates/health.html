@@ -12,8 +12,21 @@
             <span id="leaderName" class="badge bg-primary">Loading...</span>
         </div>
         <div class="col-md-6 mb-4">
-            <h5>Live Connections</h5>
-            <ul id="aliveList" class="list-unstyled"></ul>
+            <div class="dashboard-row">
+                <div class="d-flex flex-row flex-wrap gap-4 justify-content-start align-items-stretch" style="width:100%">
+                    <div class="mb-3" style="min-width:180px;max-width:220px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="display:inline-block;width:28px;height:20px;background:#2dce89;border-radius:6px;"></span>
+                            <span style="font-size:1em;">Connected</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                            <span style="display:inline-block;width:28px;height:20px;background:#d1d5db;border-radius:6px;"></span>
+                            <span style="font-size:1em;">Disconnected</span>
+                        </div>
+                    </div>
+                    <div id="clients-row" class="d-flex flex-row flex-wrap gap-4 justify-content-start align-items-stretch" style="flex:1 1 0%;"></div>
+                </div>
+            </div>
         </div>
         <div class="col-md-6 mb-4">
             <h5>Replication Lag</h5>
@@ -93,55 +106,53 @@
             // Update leader badge
             const leaderEl = document.getElementById('leaderName');
             leaderEl.textContent = data.leader;
-            leaderEl.className = 'badge bg-primary';
+            leaderEl.className = 'dashboard-badge leader-badge';
 
-            // Update list of peers
-            const aliveList = document.getElementById('aliveList');
-            aliveList.innerHTML = '';
-
-            const allPeers = [data.leader, ...data.alive.filter(p => p !== data.leader)];
-            allPeers.forEach(peer => {
-                const li = document.createElement('li');
-                const badge = document.createElement('span');
-
-                badge.textContent = peer;
-                badge.className = peer === data.leader ? 'badge bg-success me-1' : 'badge bg-secondary me-1';
-
-                li.appendChild(badge);
-                aliveList.appendChild(li);
+            // Display all clients in a row, same color, side by side
+            const clientsRow = document.getElementById('clients-row');
+            clientsRow.innerHTML = '';
+            data.clients.forEach(client => {
+                const clientDiv = document.createElement('div');
+                clientDiv.style.minWidth = '270px';
+                clientDiv.style.maxWidth = '320px';
+                clientDiv.style.marginBottom = '0';
+                clientDiv.style.display = 'flex';
+                clientDiv.style.flexDirection = 'column';
+                clientDiv.style.alignItems = 'center';
+                clientDiv.style.justifyContent = 'center';
+                clientDiv.style.padding = '18px 10px 12px 10px';
+                clientDiv.style.borderRadius = '14px';
+                clientDiv.style.background = client.last_disconnected === 'N/A' ? '#2dce89' : '#d1d5db';
+                clientDiv.style.color = client.last_disconnected === 'N/A' ? '#fff' : '#888';
+                clientDiv.style.boxShadow = '0 2px 12px rgba(0,0,0,0.04)';
+                clientDiv.style.fontWeight = '500';
+                clientDiv.style.fontSize = '1.2em';
+                clientDiv.style.transition = 'background 0.3s';
+                clientDiv.style.marginRight = '0';
+                clientDiv.style.marginLeft = '0';
+                clientDiv.innerHTML = `
+                    <div style="word-break:break-all;">${client.client}</div>
+                    <div style="font-size:0.95em; color:#a7f3d0;">Connected: ${client.last_connected || 'N/A'}</div>
+                    <div style="font-size:0.95em; color:#fecaca;">Disconnected: ${client.last_disconnected || 'N/A'}</div>
+                `;
+                clientsRow.appendChild(clientDiv);
             });
-
-            console.log("Updated cluster status:", data);
         } catch (err) {
             console.error("Failed to fetch cluster status:", err);
         }
     }
 
-    // function fetchLogs() {
-    //     fetch('/logs')
-    //         .then(response => response.json())
-    //         .then(data => {
-    //             const logList = document.getElementById('log-list');
-    //             logList.innerHTML = '';
-
-    //             data.forEach(log => {
-    //                 const li = document.createElement('li');
-    //                 li.textContent = `[${log.time}] ${log.event}`;
-    //                 logList.appendChild(li);
-    //             });
-    //         });
-    // }
     async function fetchLogs() {
-            const res = await fetch("/logs");
-            const data = await res.json();
-            document.getElementById("log-list").innerHTML = data.map(log => `<p>${log.time} - ${log.event}</p>`).join("");
-        }
-        setInterval(fetchLogs, 2000);
+        const res = await fetch("/logs");
+        const data = await res.json();
+        document.getElementById("log-list").innerHTML = data.map(log => `<p>${log.time} - ${log.event}</p>`).join("");
+    }
 
     setInterval(() => {
         updateCharts();
         updateClusterStatus();
         fetchLogs();
     }, 1000);
+    setInterval(fetchLogs, 2000);
 </script>
 {% endblock %}
