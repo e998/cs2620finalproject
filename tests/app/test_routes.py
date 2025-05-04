@@ -1,23 +1,18 @@
 import pytest
 from flask import url_for, session
 from werkzeug.security import generate_password_hash
-from unittest.mock import patch # Added for mocking
-# Adjust imports based on your actual project structure
-# It seems models/db might be in a shared location
+from unittest.mock import patch 
 try:
     from shared.models import User, Product, Message, Offer, Order, Activity # Add other models as needed
     from shared.extensions import db
 except ImportError:
-    # Fallback if shared structure doesn't exist or path is wrong
-    # This will likely cause tests relying on db/models to fail
     print("Warning: Could not import from shared module. DB/Model tests might fail.")
-    # Define dummy classes/objects if needed for basic tests to pass
     class DummyDB:
         def init_app(self, app): pass
-        session = None # Add dummy session methods if necessary
+        session = None
     db = DummyDB()
     class DummyUser:
-        query = None # Add dummy query methods if necessary
+        query = None
     User = DummyUser
 
 
@@ -56,21 +51,16 @@ def test_register_page_loads(client):
 def test_home_redirects_to_login_when_logged_out(client):
     """Test accessing protected home page redirects to login."""
     response = client.get(url_for('main.home'), follow_redirects=False) # Don't follow redirects yet
-    assert response.status_code == 302 # Expect redirect
-    # Check if the Location header points towards the login page URL
-    # This handles cases where the login URL might have query parameters (like 'next')
+    assert response.status_code == 302 
     assert response.headers['Location'].startswith(url_for('main.login'))
 
 
 def test_registration_and_login(client, app):
     """Test user registration, then login, then accessing home."""
-    # Ensure clean slate if db interactions are involved
-    # This might require more sophisticated fixture setup later
 
     # Register
     response_register = register_user(client)
     assert response_register.status_code == 200
-    # assert b'Account created! Please log in.' in response_register.data # Flash messages can be tricky to test reliably with redirects
     assert url_for('main.login') in response_register.request.path # Should be on login page
 
     # Check user exists in DB (requires app context and working DB connection)
@@ -85,8 +75,6 @@ def test_registration_and_login(client, app):
     # Login
     response_login = login_user(client)
     assert response_login.status_code == 200
-    # assert b'Logged in successfully!' in response_login.data # Flash messages can be tricky
-    # Should redirect to history after login according to code (home redirects to history)
     assert url_for('main.history') in response_login.request.path
 
     # Check session
@@ -107,8 +95,6 @@ def test_registration_and_login(client, app):
 
 def test_logout(client, app):
     """Test logging out a user."""
-    # Need to register and log in first
-    # Use unique details to avoid conflicts if tests run concurrently or DB isn't reset
     register_user(client, username="logout_user", email="logout@test.com", password="pw")
     login_user(client, username="logout_user", password="pw")
 
@@ -330,9 +316,7 @@ def test_browse_page_with_pending_offer(client, app):
 
     response = client.get(url_for('main.browse'))
     assert response.status_code == 200
-    assert b'Offer Product' in response.data # Product should still be visible
-    # Check for indicator that offer is pending (depends on template implementation)
-    # e.g., assert b'Offer Pending' in response.data or similar
+    assert b'Offer Product' in response.data 
 
 @patch('app.routes.is_leader', return_value=True) # Mock leader check
 def test_buy_proposal_success(mock_is_leader, client, app):
@@ -690,10 +674,3 @@ def test_delete_chat_success(mock_is_leader, client, app):
         assert om.deleted_by_sender is False
         assert om.deleted_by_receiver is False
 
- # Note: Tests for /edit_listing, /delete_listing, /buy_proposal, etc.
- # would require creating product data, handling potential leader forwarding/mocking,
- # and potentially more complex setup. These are omitted for brevity but should be added.
-
-# Note: Tests for SocketIO routes (/contact, handle_chat_message) are not included.
-# Note: Tests for distributed system routes (/set_key, /replicate, /get_key, /heartbeat, /cluster_status)
-# are not included due to complexity.

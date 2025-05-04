@@ -65,8 +65,6 @@ def test_cluster_status_endpoint(client):
 
 @patch('health.healthapp.db.session.query') # Correct patch target
 def test_sales_data_endpoint(mock_query, client):
-    # Define mock data structure for the rows returned by .all()
-    # We need objects with 'time' and 'count' attributes
     class MockRow:
         def __init__(self, time, count):
             self.time = time
@@ -100,9 +98,6 @@ def test_sales_data_endpoint(mock_query, client):
     assert isinstance(data['labels'], list)
     assert isinstance(data['counts'], list)
 
-    # Check the content based on the mocked data
-    # Note: The exact label format depends on strftime in the endpoint code
-    # Assuming '%H:%M' format for simplicity
     assert len(data['labels']) == 2
     assert len(data['counts']) == 2
     assert data['labels'][0].endswith(':05') # Check if the label matches the mocked time bucket

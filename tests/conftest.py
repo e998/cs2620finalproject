@@ -23,9 +23,6 @@ def app():
     # Establish an application context before creating tables
     with _app.app_context():
         if _db:
-            # Make sure tables are created based on models known to db
-            # You might need to ensure all models are imported where db is defined
-            # or within create_app() before this point.
             _db.create_all() # Create database tables
 
     yield _app # Provide the app instance to tests
@@ -43,13 +40,9 @@ def client(app):
         # Start a transaction for each test
         if _db:
             with app.app_context():
-                # Begin a nested transaction (useful for DBs supporting it)
-                # For SQLite, session.rollback() is the main mechanism
                 _db.session.begin_nested()
 
-        yield client # Provide the client to the test function
-
-        # Rollback the transaction after the test
+        yield client 
         if _db:
              with app.app_context():
-                _db.session.rollback() # Roll back any changes made during the test
+                _db.session.rollback() 

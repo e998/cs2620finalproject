@@ -169,7 +169,6 @@ def sell():
             # Forward POST to leader
             data = request.form.to_dict()
             files = request.files
-            # For file uploads, you may need to handle this differently or use a proxy
             return forward_to_leader('/sell', method='POST', json_data=data)
     form = SellForm()
     if form.validate_on_submit():

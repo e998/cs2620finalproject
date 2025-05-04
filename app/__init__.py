@@ -18,9 +18,7 @@ socketio = SocketIO(cors_allowed_origins="*", message_queue=os.environ.get('REDI
 # Flask-Login user loader setup
 @login_manager.user_loader
 def load_user(user_id):
-    # user_id is typically a string in the session, needs conversion
-    from shared.models import User # Import from shared directory
-    # Use the recommended db.session.get method
+    from shared.models import User 
     return db.session.get(User, int(user_id))
 
 def create_app(test_config=None):
@@ -41,8 +39,7 @@ def create_app(test_config=None):
     login_manager.login_view = 'main.login'
     socketio.init_app(app)
 
-    # Import models here, inside the factory, before they're needed
-    from shared import models # Import from shared directory
+    from shared import models 
 
     # Register Blueprints
     from .routes import main
@@ -50,13 +47,12 @@ def create_app(test_config=None):
 
     # Register Health Blueprint
     try:
-        from health.healthapp import healthapp # Corrected import object name
-        app.register_blueprint(healthapp, url_prefix='/health') # Use correct object
+        from health.healthapp import healthapp 
+        app.register_blueprint(healthapp, url_prefix='/health') 
     except ImportError:
         print("Warning: Could not import or register health blueprint.")
 
-    # Initialize Leader Election state and start background threads
-    # Only run this for the actual application, not during tests
+
     if not app.config.get('TESTING'):
         from shared.models import Clients
         from .routes import leader_election, retry_replications # Import background tasks

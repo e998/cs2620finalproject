@@ -89,10 +89,10 @@ def test_product_form_valid(app):
 
 @pytest.mark.parametrize("field, value, expected_error", [
     ('title', '', ['This field is required.']),
-    ('title', 'a' * 101, ['Field cannot be longer than 100 characters.']), # Example WTForms default message
+    ('title', 'a' * 101, ['Field cannot be longer than 100 characters.']),
     ('description', '', ['This field is required.']),
     ('price', '', ['This field is required.']),
-    ('price', 'not-a-number', ['Not a valid float value.', 'This field is required.']), # Accept either error
+    ('price', 'not-a-number', ['Not a valid float value.', 'This field is required.']),
 ])
 def test_product_form_invalid(app, field, value, expected_error):
     with app.test_request_context('/product', method='POST'):
@@ -102,21 +102,16 @@ def test_product_form_invalid(app, field, value, expected_error):
         assert form.validate() is False
         field_errors = form.errors.get(field, [])
         assert field_errors, f"Expected errors for field {field}, but got none."
-        # Optional: Keep the original check if specific error messages are preferred, adjusting expected_error list
-        # assert any(any(e in msg for e in expected_error) for msg in field_errors), \
-        #        f"Expected error containing {expected_error} for field {field}, got {field_errors}"
 
 
 # --- SellForm Tests --- 
-# Note: FileField validation is complex and often better tested in integration tests
 
 def test_sell_form_valid(app):
     with app.test_request_context('/sell', method='POST', content_type='multipart/form-data'):
         form = SellForm(DummyPostData({
             'title': 'Test Item',
             'description': 'Selling this item.',
-            'price': '123.45' # DecimalField often takes string input
-            # 'picture': (io.BytesIO(b"abcdef"), 'test.jpg') # Optional - FileField testing setup
+            'price': '123.45' 
         }))
         assert form.validate() is True
 
@@ -126,8 +121,7 @@ def test_sell_form_valid(app):
     ('description', '', ['This field is required.']),
     ('description', 'a' * 501, ['Field cannot be longer than 500 characters.']),
     ('price', '', ['This field is required.']),
-    ('price', 'abc', ['Not a valid decimal value.', 'This field is required.']), # Accept either error
-    # ('price', '12.345', ['Ensure that there are no more than 2 decimal places.']), # REMOVED: places=2 doesn't validate input length
+    ('price', 'abc', ['Not a valid decimal value.', 'This field is required.']), 
 ])
 def test_sell_form_invalid(app, field, value, expected_error):
     with app.test_request_context('/sell', method='POST', content_type='multipart/form-data'):
@@ -137,6 +131,4 @@ def test_sell_form_invalid(app, field, value, expected_error):
         assert form.validate() is False
         field_errors = form.errors.get(field, [])
         assert field_errors, f"Expected errors for field {field}, but got none."
-        # Optional: Keep the original check if specific error messages are preferred, adjusting expected_error list
-        # assert any(any(e in msg for e in expected_error) for msg in field_errors), \
-        #        f"Expected error containing {expected_error} for field {field}, got {field_errors}"
+
