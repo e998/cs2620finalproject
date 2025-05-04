@@ -1,9 +1,9 @@
 import pytest
 from flask import url_for, session
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash # Import added
 from unittest.mock import patch 
 try:
-    from shared.models import User, Product, Message, Offer, Order, Activity # Add other models as needed
+    from shared.models import User, Product, Message, Offer, Order, Logs # Add other models as needed
     from shared.extensions import db
 except ImportError:
     print("Warning: Could not import from shared module. DB/Model tests might fail.")
@@ -459,14 +459,15 @@ def test_accept_offer_success(mock_is_leader, client, app):
         canceled_offer = db.session.get(Offer, offer2_id) # Use db.session.get
         sold_product = db.session.get(Product, product_id) # Use db.session.get
         order = Order.query.filter_by(product_id=product_id, buyer_id=buyer1_id).first() # Use buyer1_id
-        activity = Activity.query.order_by(Activity.id.desc()).first()
+        log_entry = Logs.query.filter_by(event='Sale').order_by(Logs.id.desc()).first()
 
         assert accepted_offer.status == 'Accepted'
         assert canceled_offer.status == 'Canceled'
         assert sold_product.is_sold is True
         assert order is not None
         assert order.status == 'Completed'
-        assert activity.label == 'Sale'
+        assert log_entry is not None # Check if a log entry was found
+        assert log_entry.event == 'Sale' # Check the event field
 
 @patch('app.routes.is_leader', return_value=True)
 def test_accept_offer_not_seller(mock_is_leader, client, app):
@@ -673,4 +674,3 @@ def test_delete_chat_success(mock_is_leader, client, app):
         # Other message should be untouched
         assert om.deleted_by_sender is False
         assert om.deleted_by_receiver is False
-

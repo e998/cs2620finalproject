@@ -1,7 +1,7 @@
 from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, session, g
 from flask_login import login_user, logout_user, current_user, login_required
 from .forms import LoginForm, RegistrationForm, SellForm
-from shared.models import User, Product, Message, Offer, Order, Clients, Activity
+from shared.models import User, Product, Message, Offer, Order, Clients, Logs # Use Logs, removed Activity
 from werkzeug.security import check_password_hash, generate_password_hash
 from . import db
 from .utils import save_picture
@@ -62,26 +62,61 @@ def get_my_url():
 def is_leader():
     with leader_lock:
         leader = get_my_url()
-        set_leader(leader)
+        set_leader(leader, current_app)
     return LEADER_NODE == get_my_url()
 
-def set_leader(new_leader_url):
+def set_leader(new_leader_url, app):
     global LEADER_NODE
     LEADER_NODE = new_leader_url
-    from health import create_healthapp
-    app = create_healthapp()
+    current_time = datetime.utcnow()
+    log_event = None 
+
     with app.app_context():
-        all_clients = Clients.query.all()
-        for client in all_clients:
-            if client.client == new_leader_url:
-                if not client.leader:
-                    client.became_leader_at = datetime.utcnow()
-                client.leader = True
+        try:
+            # Find the previous leader, if any
+            previous_leader = Clients.query.filter_by(leader=True).first()
+            if previous_leader and previous_leader.client != new_leader_url:
+                previous_leader.leader = False
+                db.session.add(previous_leader)
+                log_event = f"Leader changed from {previous_leader.client} to {new_leader_url}"
+            elif previous_leader and previous_leader.client == new_leader_url:
+                 log_event = f"Leader {new_leader_url} re-confirmed."
+                 pass
             else:
-                if client.leader:
-                    client.became_leader_at = None
-                client.leader = False
-        db.session.commit()
+                log_event = f"New leader elected: {new_leader_url}"
+
+            # Find or create the new leader client entry
+            new_leader_client = Clients.query.filter_by(client=new_leader_url).first()
+            if new_leader_client:
+                if not new_leader_client.leader:
+                    new_leader_client.leader = True
+                    new_leader_client.became_leader_at = current_time
+                    db.session.add(new_leader_client)
+            else:
+                new_client = Clients(
+                    client=new_leader_url,
+                    leader=True,
+                    became_leader_at=current_time,
+                    last_connected=current_time
+                )
+                db.session.add(new_client)
+                log_event = f"New client {new_leader_url} registered and elected leader."
+
+            # Add the log entry using Logs model
+            if log_event:
+                new_log = Logs(event=log_event, timestamp=current_time)
+                db.session.add(new_log)
+
+            db.session.commit()
+            print(f"[Leader Election] Leader set to {new_leader_url} at {current_time}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error setting leader: {e}")
+            # Log the error itself using Logs model
+            error_log = Logs(event=f"Error setting leader: {e}", timestamp=datetime.utcnow())
+            db.session.add(error_log)
+            db.session.commit() # Commit the error log separately
+
 
 main = Blueprint('main', __name__)
 
@@ -102,7 +137,7 @@ def login():
         if user and check_password_hash(user.password, form.password.data):
             login_user(user)
 
-            activity = Activity(label="Login")
+            activity = Logs(event="Login", timestamp=datetime.utcnow())
             db.session.add(activity)
             db.session.commit()
             flash('Logged in successfully!', 'success')
@@ -127,7 +162,7 @@ def register():
         db.session.add(user)
         db.session.commit()
 
-        activity = Activity(label="Registration")
+        activity = Logs(event="Registration", timestamp=datetime.utcnow())
         db.session.add(activity)
         db.session.commit()
         flash('Account created! Please log in.', 'success')
@@ -185,7 +220,7 @@ def sell():
         db.session.add(product)
         db.session.commit()
 
-        activity = Activity(label="Item Listing")
+        activity = Logs(event="Item Listing", timestamp=datetime.utcnow())
         db.session.add(activity)
         db.session.commit()
         flash('Your item has been listed for sale!', 'success')
@@ -212,7 +247,7 @@ def edit_listing(product_id):
             product.image_file = save_picture(form.picture.data)
         db.session.commit()
 
-        activity = Activity(label="Listing Updated")
+        activity = Logs(event="Listing Updated", timestamp=datetime.utcnow())
         db.session.add(activity)
         db.session.commit()
         flash('Listing updated.', 'success')
@@ -231,7 +266,7 @@ def delete_listing(product_id):
     db.session.delete(product)
     db.session.commit()
 
-    activity = Activity(label="Listing Deleted")
+    activity = Logs(event="Listing Deleted", timestamp=datetime.utcnow())
     db.session.add(activity)
     db.session.commit()
     flash('Listing deleted.', 'info')
@@ -256,7 +291,7 @@ def buy_proposal(product_id):
     db.session.add(offer)
     db.session.commit()
 
-    activity = Activity(label="Buy Proposal Sent")
+    activity = Logs(event="Buy Proposal Sent", timestamp=datetime.utcnow())
     db.session.add(activity)
     db.session.commit()
     flash('Buy proposal sent to the seller!', 'success')
@@ -296,7 +331,7 @@ def accept_offer(offer_id):
     db.session.add(order)
     db.session.commit()
 
-    activity = Activity(label="Sale")
+    activity = Logs(event="Sale", timestamp=datetime.utcnow())
     db.session.add(activity)
     db.session.commit()
     flash(f'Congrats! You have successfully sold {product.title}. All other pending offers have been canceled. Please contact the buyer via chat to discuss payment and shipping options.', 'success')
@@ -508,14 +543,14 @@ def leader_election():
             if alive:
                 # Always select the lowest (sorted) peer as leader
                 new_leader = sorted(alive)[0]
-                set_leader(new_leader)
+                set_leader(new_leader, app)
                 if get_my_url() == new_leader:
                     print(f"[Leader Election] I am the leader: {get_my_url()}")
                 else:
                     print(f"[Leader Election] Current leader: {new_leader}")
             else:
                 # No alive peers, default to self as leader
-                set_leader(get_my_url())
+                set_leader(get_my_url(), app)
                 print(f"[Leader Election] No peers alive, self is leader.")
 
 # Background thread to retry failed replications

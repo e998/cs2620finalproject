@@ -75,3 +75,11 @@ class Activity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     label = db.Column(db.String(256))
     activitytime = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Logs(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    event = db.Column(db.String(512)) # Store the event description
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Log {self.id}: {self.event[:50]}... at {self.timestamp}>'

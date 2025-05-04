@@ -46,13 +46,18 @@ def test_get_api_metrics_calculation(app):
 
     # Cleanup not needed for local test_data
 
-def test_cluster_status_endpoint(client):
+def test_cluster_status_endpoint(client, app):
     """
     GIVEN a Flask application configured for testing
     WHEN the '/health/cluster_status' page is requested (GET)
     THEN check that the response is valid JSON with status code 200
     AND check that the JSON data is a dictionary with 'alive' and 'leader' keys containing empty lists initially
     """
+    # Ensure the Clients table is empty before the request
+    with app.app_context():
+        Clients.query.delete()
+        db.session.commit()
+
     response = client.get('/health/cluster_status')
     assert response.status_code == 200
     assert response.is_json
