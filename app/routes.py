@@ -19,19 +19,6 @@ from datetime import datetime
 STORE_FILE = 'distributed_store.json'
 REPLICATION_QUEUE_FILE = 'replication_queue.json'
 
-# --- Leader Election and State ---
-from health import create_healthapp
-app = create_healthapp()
-with app.app_context():
-    LEADER_NODE = os.environ.get('LEADER_NODE_URL')  # initial value, will be updated in memory
-    currleader = Clients.query.filter_by(client=LEADER_NODE).first()
-    if currleader:
-        currleader.leader = True
-    else:
-        currleader = Clients(client=LEADER_NODE, leader=True)
-        db.session.add(currleader)
-    db.session.commit()
-
 PORT = int(os.environ.get('PORT', 'PORT')) ###
 PEERS = [p for p in os.environ.get('PEER_NODES', '').split(',') if p]
 local_store = {}
@@ -526,8 +513,6 @@ def leader_election():
                 set_leader(get_my_url())
                 print(f"[Leader Election] No peers alive, self is leader.")
 
-threading.Thread(target=leader_election, daemon=True).start()
-
 # Background thread to retry failed replications
 
 def retry_replications():
@@ -542,7 +527,6 @@ def retry_replications():
                 save_replication_queue(replication_queue)
             except Exception:
                 continue
-threading.Thread(target=retry_replications, daemon=True).start()
 
 # Load state at startup
 load_store()

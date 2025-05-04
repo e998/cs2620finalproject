@@ -61,6 +61,39 @@
         color: #5e72e4;
         border-top: 1px solid #e5e7eb;
     }
+    .tooltip-icon {
+        font-size: 0.75em; /* Slightly smaller */
+        color: #6c757d; /* Gray text */
+        background-color: transparent; /* Transparent background */
+        margin-left: 6px;
+        border: 1px solid #adb5bd; /* Gray border */
+        border-radius: 50%;
+        width: 1.4em; /* Adjust size */
+        height: 1.4em; /* Adjust size */
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        text-align: center;
+        vertical-align: middle;
+    }
+    #tooltip-box {
+        position: absolute;
+        visibility: hidden;
+        background-color: #ffffff; /* White background */
+        color: #333; /* Dark gray text */
+        text-align: left; /* Align text left */
+        border-radius: 6px; /* Rounded corners */
+        padding: 8px; /* Adjust padding */
+        z-index: 1000;
+        font-size: 0.9em;
+        /* white-space: nowrap; */ /* Allow wrapping */
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        border: 1px solid #ccc; /* Light gray border */
+        max-width: 200px; /* Prevent it from getting too wide */
+    }
 </style>
 <div class="container py-5">
     <div class="text-center mb-5">
@@ -70,14 +103,14 @@
     <div class="dashboard-row">
         <div class="dashboard-col">
             <div class="dashboard-card">
-                <div class="dashboard-header">🏆 Leader Identity</div>
+                <div class="dashboard-header">🏆 Leader Identity<span class="tooltip-icon" data-tooltip="Shows which client instance is currently the designated leader.">?</span></div>
                 <span id="leaderName" class="dashboard-badge leader-badge">Loading...</span>
                 <div id="leaderTimestamp" style="margin-top:10px; color:#888; font-size:0.95em"></div>
             </div>
         </div>
         <div class="dashboard-col">
             <div class="dashboard-card">
-                <div class="dashboard-header">🔗 Connections</div>
+                <div class="dashboard-header">🔗 Connections<span class="tooltip-icon" data-tooltip="Lists all client instances currently connected to the system.">?</span></div>
                 <ul id="aliveList"
                     class="list-unstyled"
                     style="margin-bottom:0; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding-left: 0; gap: 1rem; min-height: 50px;">
@@ -88,13 +121,13 @@
     <div class="dashboard-row">
         <div class="dashboard-col">
             <div class="dashboard-card">
-                <div class="dashboard-header">⏱️ API Latency by Endpoint</div>
+                <div class="dashboard-header">⏱️ API Latency by Endpoint<span class="tooltip-icon" data-tooltip="Displays the average response time for each API endpoint.">?</span></div>
                 <canvas id="latencyBarChart"></canvas>
             </div>
         </div>
         <div class="dashboard-col">
             <div class="dashboard-card">
-                <div class="dashboard-header">📊 API Call Count by Endpoint</div>
+                <div class="dashboard-header">📊 API Call Count by Endpoint<span class="tooltip-icon" data-tooltip="Shows the total number of times each API endpoint has been requested.">?</span></div>
                 <canvas id="callCountBarChart"></canvas>
             </div>
         </div>
@@ -102,19 +135,19 @@
     <div class="dashboard-row">
         <div class="dashboard-col" style="max-width:600px;">
             <div class="dashboard-card mb-4">
-                <div class="dashboard-header">📈 Sales</div>
+                <div class="dashboard-header">📈 Sales<span class="tooltip-icon" data-tooltip="Visualizes sales data trends over a period.">?</span></div>
                 <canvas id="salesChart"></canvas>
             </div>
         </div>
         <div class="dashboard-col" style="max-width:600px;">
             <div id="usageStatsCard" class="dashboard-card mb-4">
-                <div class="dashboard-header">📋 Usage Statistics</div>
+                <div class="dashboard-header">📋 Usage Statistics<span class="tooltip-icon" data-tooltip="Summarizes overall API usage, including total calls and the most frequently used endpoint.">?</span></div>
                 <div id="usageStatsContent">Loading...</div>
             </div>
         </div>
     </div>
     <div class="dashboard-card mt-4 text-start">
-        <div class="dashboard-header">📝 Activity Logs</div>
+        <div class="dashboard-header">📝 Activity Logs<span class="tooltip-icon" data-tooltip="Records significant system events chronologically.">?</span></div>
         <label for="eventFilter"><strong>Filter by Event:</strong></label>
         <select id="eventFilter" class="form-select" style="width:auto; display:inline-block; margin-left:8px; margin-bottom:16px;">
           <option value="all">All</option>
@@ -129,6 +162,7 @@
         </table>
     </div>
 </div>
+<div id="tooltip-box"></div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     async function updateClusterStatus() {
@@ -220,8 +254,7 @@
     async function loadActivityLog() {
         try {
             const res = await fetch('/activity_log');
-            const data = await res.json();
-            allLogs = data;
+            allLogs = await res.json();
             updateEventFilterOptions();
             renderActivityLogTable();
         } catch (err) {
@@ -259,11 +292,11 @@
     let callCountChartInstance = null;
     async function fetchAndRenderApiMetrics() {
         try {
-            const res = await fetch('/api_metrics');
+            const res = await fetch('/api/metrics'); 
             const data = await res.json();
             // Remove 'usage' from endpoints
             const endpoints = Object.keys(data).filter(k => k !== 'usage');
-            const avgLatencies = endpoints.map(ep => data[ep].avg_time);
+            const avgLatencies = endpoints.map(ep => data[ep].average_time); 
             const callCounts = endpoints.map(ep => data[ep].count);
 
             // Latency Bar Chart
@@ -352,6 +385,9 @@
         }
     }
 
+    // --- Sales Chart ---
+    let salesChartInstance = null;
+
     async function fetchDataAndUpdateChart() {
         try {
             const res = await fetch('/sales_data');
@@ -369,8 +405,8 @@
                         datasets: [{
                             label: 'Sales',
                             data: data.counts,
-                            borderColor: '#e74c3c',
-                            backgroundColor: 'rgba(231, 76, 60, 0.12)',
+                            borderColor: 'rgba(75, 192, 192, 0.6)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
                             fill: true,
                             tension: 0.2
                         }]
@@ -396,13 +432,45 @@
     document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('eventFilter').addEventListener('change', renderActivityLogTable);
         fetchAndRenderApiMetrics();
+        updateClusterStatus();
+        fetchDataAndUpdateChart();
+        loadActivityLog();
+        setInterval(fetchAndRenderApiMetrics, 5000); 
+        setInterval(updateClusterStatus, 5000); 
+        setInterval(() => fetchDataAndUpdateChart(), 5000); 
+        setInterval(loadActivityLog, 5000);
+
+        // --- Tooltip Logic ---
+        const tooltipBox = document.getElementById('tooltip-box');
+        const icons = document.querySelectorAll('.tooltip-icon');
+
+        icons.forEach(icon => {
+            icon.addEventListener('mouseenter', function(e) {
+                tooltipBox.innerHTML = this.getAttribute('data-tooltip');
+                tooltipBox.style.visibility = 'visible';
+                tooltipBox.style.opacity = 1;
+
+                // Position tooltip relative to the icon
+                const rect = this.getBoundingClientRect();
+                tooltipBox.style.left = `${rect.left + window.scrollX + (rect.width / 2) - (tooltipBox.offsetWidth / 2)}px`;
+                tooltipBox.style.top = `${rect.top + window.scrollY - tooltipBox.offsetHeight - 5}px`; // 5px above the icon
+                 // Add check to prevent tooltip going off-screen left
+                if (tooltipBox.offsetLeft < 0) {
+                    tooltipBox.style.left = '5px';
+                }
+                // Add check to prevent tooltip going off-screen top
+                const tooltipRect = tooltipBox.getBoundingClientRect();
+                if (tooltipRect.top < 0) { // Use calculated tooltip top
+                    tooltipBox.style.top = `${rect.bottom + window.scrollY + 5}px`; // 5px below the icon if no space above
+                }
+            });
+
+            icon.addEventListener('mouseleave', function() {
+                tooltipBox.style.visibility = 'hidden';
+                tooltipBox.style.opacity = 0;
+            });
+        });
     });
-    loadActivityLog();
-    updateClusterStatus();
-    fetchDataAndUpdateChart();
-    setInterval(updateClusterStatus, 5000);
-    setInterval(loadActivityLog, 5000);
-    setInterval(fetchDataAndUpdateChart, 5000);
-    setInterval(fetchAndRenderApiMetrics, 5000);
+
 </script>
 {% endblock %}

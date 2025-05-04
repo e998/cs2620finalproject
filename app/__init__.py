@@ -5,8 +5,10 @@ from flask_socketio import SocketIO
 from dotenv import load_dotenv
 import os
 import sys
+import threading
+from sqlalchemy import exc as sqlalchemy_exc
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from shared.extensions import db
+from shared.extensions import db, migrate
 
 # Initialize extensions
 login_manager = LoginManager()
@@ -14,23 +16,85 @@ load_dotenv()
 socketio = SocketIO(cors_allowed_origins="*", message_queue=os.environ.get('REDIS_URL', 'redis://'))
 
 # Flask-Login user loader setup
-from shared.models import User
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    # user_id is typically a string in the session, needs conversion
+    from shared.models import User # Import from shared directory
+    # Use the recommended db.session.get method
+    return db.session.get(User, int(user_id))
 
-def create_app():
+def create_app(test_config=None):
     app = Flask(__name__)
+    # Load default configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'changeme')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://cs262_final_user:6uYZnPbZVd3bczQgRyeZqv53uehhp2bL@dpg-d02kh56uk2gs73ejhfj0-a.oregon-postgres.render.com/cs262_final')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+    # Apply test configuration overrides if provided
+    if test_config:
+        app.config.update(test_config)
+
+    # Initialize extensions AFTER config is finalized
     db.init_app(app)
+    migrate.init_app(app, db)
     login_manager.init_app(app)
     login_manager.login_view = 'main.login'
     socketio.init_app(app)
 
+    # Import models here, inside the factory, before they're needed
+    from shared import models # Import from shared directory
+
+    # Register Blueprints
     from .routes import main
     app.register_blueprint(main)
+
+    # Register Health Blueprint
+    try:
+        from health.healthapp import healthapp # Corrected import object name
+        app.register_blueprint(healthapp, url_prefix='/health') # Use correct object
+    except ImportError:
+        print("Warning: Could not import or register health blueprint.")
+
+    # Initialize Leader Election state and start background threads
+    # Only run this for the actual application, not during tests
+    if not app.config.get('TESTING'):
+        from shared.models import Clients
+        from .routes import leader_election, retry_replications # Import background tasks
+
+        try:
+            with app.app_context():
+                # Initialize leader state in the database
+                LEADER_NODE = os.environ.get('LEADER_NODE_URL')
+                if LEADER_NODE:
+                    currleader = Clients.query.filter_by(client=LEADER_NODE).first()
+                    if currleader:
+                        if not currleader.leader:
+                            currleader.leader = True # Ensure it's marked as leader
+                            db.session.add(currleader)
+                    else:
+                        currleader = Clients(client=LEADER_NODE, leader=True)
+                        db.session.add(currleader)
+                    # Committing the potential change
+                    db.session.commit()
+                else:
+                    print("Warning: LEADER_NODE_URL environment variable not set. Cannot initialize leader.")
+
+            # Start background threads ONLY if leader init succeeded
+            print("Starting background threads...")
+            threading.Thread(target=leader_election, daemon=True).start()
+            threading.Thread(target=retry_replications, daemon=True).start()
+            print("Background threads started.")
+
+        except sqlalchemy_exc.ProgrammingError as e:
+            # Likely happens if tables don't exist yet (e.g., during flask db migrate/upgrade)
+            with app.app_context():
+                db.session.rollback() # Rollback any potential failed transaction
+            print(f"Warning: Database error during leader initialization (likely missing tables?): {e}")
+            print("Skipping leader initialization and background thread startup. Run 'flask db upgrade' and restart.")
+        except Exception as e:
+            # Catch other potential errors during init
+            with app.app_context():
+                db.session.rollback()
+            print(f"Error during application initialization: {e}")
 
     return app

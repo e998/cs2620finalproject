@@ -38,7 +38,7 @@ def record_api_metrics(endpoint):
 @healthapp.route("/")
 @record_api_metrics('index')
 def index():
-    return render_template("health.html")
+    return render_template("health.html", data={})
 
 @healthapp.route("/cluster_status")
 @record_api_metrics('cluster_status')
@@ -91,25 +91,43 @@ def get_activity_log():
     return jsonify(activities)
 
 # --- Metrics API ---
-@healthapp.route('/api_metrics')
-def get_api_metrics():
-    data = {}
-    for endpoint, stats in api_metrics.items():
-        avg_time = stats['total_time'] / stats['count'] if stats['count'] else 0.0
-        data[endpoint] = {
-            'count': stats['count'],
-            'avg_time': avg_time
-        }
-    # Usage statistics: total calls, most called endpoint
-    total_calls = sum(stats['count'] for stats in api_metrics.values())
-    most_called = max(api_metrics.items(), key=lambda x: x[1]['count'])[0] if api_metrics else None
-    data['usage'] = {
+@healthapp.route('/api/metrics')
+def get_api_metrics(metrics_source=None):
+    """Returns API usage metrics."""
+    source = metrics_source if metrics_source is not None else api_metrics # Use provided source or global
+    calculated_metrics = {}
+    for endpoint, data in source.items(): # Use the determined source
+        count = data['count']
+        total_time = data['total_time']
+        if count > 0:
+            average_time = total_time / count
+            calculated_metrics[endpoint] = {
+                'count': count,
+                'total_time': round(total_time, 4),
+                'average_time': round(average_time, 4)
+            }
+        else:
+             calculated_metrics[endpoint] = {
+                'count': 0,
+                'total_time': 0.0,
+                'average_time': 0.0
+            }
+
+    # Restore usage statistics calculation
+    if source: # Check if source is not empty
+        total_calls = sum(data['count'] for data in source.values())
+        most_called_item = max(source.items(), key=lambda item: item[1]['count'], default=None)
+        most_called = most_called_item[0] if most_called_item else None
+    else:
+        total_calls = 0
+        most_called = None
+
+    calculated_metrics['usage'] = {
         'total_calls': total_calls,
         'most_called': most_called
     }
-    return jsonify(data)
 
-# (Removed duplicate Clients model definition. Use the one in shared/models.py)
+    return jsonify(calculated_metrics)
 
 if __name__ == '__main__':
     app = create_healthapp()
