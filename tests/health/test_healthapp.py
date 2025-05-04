@@ -1,6 +1,11 @@
 import pytest
 from collections import defaultdict
 from health.healthapp import get_api_metrics
+from shared.models import Clients, Order, Activity 
+from shared.extensions import db
+import json
+from datetime import datetime, timedelta
+from unittest.mock import patch, MagicMock
 
 def test_health_check_endpoint(client):
     """
@@ -57,3 +62,82 @@ def test_cluster_status_endpoint(client):
     assert 'leader' in json_data
     assert json_data['alive'] == [] # Check value for 'alive'
     assert json_data['leader'] == [] # Check value for 'leader'
+
+@patch('health.healthapp.db.session.query') # Correct patch target
+def test_sales_data_endpoint(mock_query, client):
+    # Define mock data structure for the rows returned by .all()
+    # We need objects with 'time' and 'count' attributes
+    class MockRow:
+        def __init__(self, time, count):
+            self.time = time
+            self.count = count
+
+    mock_data = [
+        MockRow(datetime(2024, 5, 4, 10, 5, 0), 3), # Bucket 1: 10:05, Count 3
+        MockRow(datetime(2024, 5, 4, 10, 10, 0), 2)  # Bucket 2: 10:10, Count 2
+    ]
+
+    # Configure the mock query chain to return the mock_data at the end
+    mock_query.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = mock_data
+
+    # No need to add dummy Order data anymore as we mock the query result
+
+    response = client.get('/health/sales_data')
+    assert response.status_code == 200
+    data = response.get_json()
+
+    # Check that db.session.query was called
+    mock_query.assert_called_once()
+    # Optionally check that filter/group_by/order_by/all were called
+    mock_query.return_value.filter.assert_called()
+    mock_query.return_value.filter.return_value.group_by.assert_called()
+    mock_query.return_value.filter.return_value.group_by.return_value.order_by.assert_called()
+    mock_query.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.assert_called_once()
+
+    # Check the structure of the JSON response
+    assert 'labels' in data
+    assert 'counts' in data
+    assert isinstance(data['labels'], list)
+    assert isinstance(data['counts'], list)
+
+    # Check the content based on the mocked data
+    # Note: The exact label format depends on strftime in the endpoint code
+    # Assuming '%H:%M' format for simplicity
+    assert len(data['labels']) == 2
+    assert len(data['counts']) == 2
+    assert data['labels'][0].endswith(':05') # Check if the label matches the mocked time bucket
+    assert data['counts'][0] == 3
+    assert data['labels'][1].endswith(':10')
+    assert data['counts'][1] == 2
+
+    # No need to clean up Order data anymore
+
+def test_activity_log_endpoint(client):
+    # Clean up any old data first
+    Activity.query.delete()
+    db.session.commit()
+
+    # Add dummy data
+    act1 = Activity(label='User logged in', activitytime=datetime.utcnow() - timedelta(minutes=5))
+    act2 = Activity(label='Order placed', activitytime=datetime.utcnow() - timedelta(minutes=2))
+    act3 = Activity(label='System started', activitytime=datetime.utcnow() - timedelta(hours=1))
+    # Add more than 10 to test the limit
+    for i in range(10):
+         db.session.add(Activity(label=f'Old event {i}', activitytime=datetime.utcnow() - timedelta(days=1)))
+
+    db.session.add_all([act1, act2, act3])
+    db.session.commit()
+
+    response = client.get('/health/activity_log')
+    assert response.status_code == 200
+    data = response.get_json()
+
+    assert isinstance(data, list)
+    assert len(data) == 10 # Should be limited to 10
+    assert data[0]['activity'] == 'Order placed' # Most recent
+    assert data[1]['activity'] == 'User logged in'
+    assert data[2]['activity'] == 'System started'
+
+    # Clean up dummy data
+    Activity.query.delete()
+    db.session.commit()

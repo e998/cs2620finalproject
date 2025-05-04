@@ -274,8 +274,14 @@ def accept_offer(offer_id):
         return redirect(url_for('main.my_listings'))
     offer.status = 'Accepted'
     # Mark product as sold
-    product = Product.query.get(offer.product_id)
-    product.is_sold = True
+    product = db.session.get(Product, offer.product_id) # Use db.session.get
+    if product:
+        product.is_sold = True
+    else:
+        # Handle case where product might not be found (though should be based on FK)
+        flash('Error finding product associated with the offer.', 'danger')
+        return redirect(url_for('main.my_listings')) # Or handle appropriately
+
     db.session.commit()
     # Cancel all other pending offers for this product
     other_offers = Offer.query.filter(
