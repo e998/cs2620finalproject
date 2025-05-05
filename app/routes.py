@@ -1,7 +1,7 @@
 from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, session, g
 from flask_login import login_user, logout_user, current_user, login_required
 from .forms import LoginForm, RegistrationForm, SellForm
-from shared.models import User, Product, Message, Offer, Order, Clients, Logs # Use Logs, removed Activity
+from shared.models import User, Product, Message, Offer, Order, Clients, Activity
 from werkzeug.security import check_password_hash, generate_password_hash
 from . import db
 from .utils import save_picture
@@ -19,7 +19,7 @@ from datetime import datetime
 STORE_FILE = 'distributed_store.json'
 REPLICATION_QUEUE_FILE = 'replication_queue.json'
 
-PORT = int(os.environ.get('PORT', 'PORT')) ###
+PORT = int(os.environ.get('PORT', 'PORT'))
 PEERS = [p for p in os.environ.get('PEER_NODES', '').split(',') if p]
 local_store = {}
 replication_queue = []
@@ -102,9 +102,9 @@ def set_leader(new_leader_url, app):
                 db.session.add(new_client)
                 log_event = f"New client {new_leader_url} registered and elected leader."
 
-            # Add the log entry using Logs model
+            # Add the log entry using Activity model
             if log_event:
-                new_log = Logs(event=log_event, timestamp=current_time)
+                new_log = Activity(label=log_event, activitytime=current_time)
                 db.session.add(new_log)
 
             db.session.commit()
@@ -112,8 +112,8 @@ def set_leader(new_leader_url, app):
         except Exception as e:
             db.session.rollback()
             print(f"Error setting leader: {e}")
-            # Log the error itself using Logs model
-            error_log = Logs(event=f"Error setting leader: {e}", timestamp=datetime.utcnow())
+            # Log the error itself using Activity model
+            error_log = Activity(label=f"Error setting leader: {e}", activitytime=datetime.utcnow())
             db.session.add(error_log)
             db.session.commit() # Commit the error log separately
 
@@ -137,7 +137,7 @@ def login():
         if user and check_password_hash(user.password, form.password.data):
             login_user(user)
 
-            activity = Logs(event="Login", timestamp=datetime.utcnow())
+            activity = Activity(label="Login", activitytime=datetime.utcnow())
             db.session.add(activity)
             db.session.commit()
             flash('Logged in successfully!', 'success')
@@ -162,7 +162,7 @@ def register():
         db.session.add(user)
         db.session.commit()
 
-        activity = Logs(event="Registration", timestamp=datetime.utcnow())
+        activity = Activity(label="Registration", activitytime=datetime.utcnow())
         db.session.add(activity)
         db.session.commit()
         flash('Account created! Please log in.', 'success')
@@ -220,7 +220,7 @@ def sell():
         db.session.add(product)
         db.session.commit()
 
-        activity = Logs(event="Item Listing", timestamp=datetime.utcnow())
+        activity = Activity(label="Item Listing", activitytime=datetime.utcnow())
         db.session.add(activity)
         db.session.commit()
         flash('Your item has been listed for sale!', 'success')
@@ -247,7 +247,7 @@ def edit_listing(product_id):
             product.image_file = save_picture(form.picture.data)
         db.session.commit()
 
-        activity = Logs(event="Listing Updated", timestamp=datetime.utcnow())
+        activity = Activity(label="Listing Updated", activitytime=datetime.utcnow())
         db.session.add(activity)
         db.session.commit()
         flash('Listing updated.', 'success')
@@ -266,7 +266,7 @@ def delete_listing(product_id):
     db.session.delete(product)
     db.session.commit()
 
-    activity = Logs(event="Listing Deleted", timestamp=datetime.utcnow())
+    activity = Activity(label="Listing Deleted", activitytime=datetime.utcnow())
     db.session.add(activity)
     db.session.commit()
     flash('Listing deleted.', 'info')
@@ -275,7 +275,7 @@ def delete_listing(product_id):
 @main.route('/buy_proposal/<int:product_id>', methods=['POST'])
 @login_required
 def buy_proposal(product_id):
-    print(f"Authenticated: {current_user.is_authenticated}") ###
+    print(f"Authenticated: {current_user.is_authenticated}")
     if not is_leader():
         return forward_to_leader(f'/buy_proposal/{product_id}', method='POST')
     product = Product.query.get_or_404(product_id)
@@ -291,7 +291,7 @@ def buy_proposal(product_id):
     db.session.add(offer)
     db.session.commit()
 
-    activity = Logs(event="Buy Proposal Sent", timestamp=datetime.utcnow())
+    activity = Activity(label="Buy Proposal Sent", activitytime=datetime.utcnow())
     db.session.add(activity)
     db.session.commit()
     flash('Buy proposal sent to the seller!', 'success')
@@ -331,7 +331,7 @@ def accept_offer(offer_id):
     db.session.add(order)
     db.session.commit()
 
-    activity = Logs(event="Sale", timestamp=datetime.utcnow())
+    activity = Activity(label="Sale", activitytime=datetime.utcnow())
     db.session.add(activity)
     db.session.commit()
     flash(f'Congrats! You have successfully sold {product.title}. All other pending offers have been canceled. Please contact the buyer via chat to discuss payment and shipping options.', 'success')
