@@ -1,4 +1,5 @@
 # CS2620 Final Project
+## Esther An and Sammi Zhu
 
 ## Setup
 
