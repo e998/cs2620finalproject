@@ -133,8 +133,8 @@ def test_activity_log_endpoint(client):
     data = response.get_json()
 
     assert isinstance(data, list)
-    assert len(data) == 10 # Should be limited to 10
-    assert data[0]['activity'] == 'Order placed' # Most recent
+    assert len(data) == 13  # Should match the number of inserted activities
+    assert data[0]['activity'] == 'Order placed'  # Most recent
     assert data[1]['activity'] == 'User logged in'
     assert data[2]['activity'] == 'System started'
 

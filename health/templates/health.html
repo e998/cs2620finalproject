@@ -149,7 +149,7 @@
     <div class="dashboard-card mt-4 text-start">
         <div class="dashboard-header">📝 Activity Logs<span class="tooltip-icon" data-tooltip="Records significant system events chronologically.">?</span></div>
         <label for="eventFilter"><strong>Filter by Event:</strong></label>
-        <select id="eventFilter" class="form-select" style="width:auto; display:inline-block; margin-left:8px; margin-bottom:16px;">
+        <select id="eventFilter" class="form-select" style="width:auto; display:inline-block; margin-bottom:16px;">
           <option value="all">All</option>
         </select>
         <table class="activity-table" id="activity-log-table">
@@ -265,16 +265,20 @@
 
     function updateEventFilterOptions() {
         const filter = document.getElementById('eventFilter');
-        const events = Array.from(new Set(allLogs.map(entry => entry.activity)));
-        filter.innerHTML = '<option value="all">All</option>' + events.map(ev => `<option value="${ev}">${ev}</option>`).join('');
+        const events = Array.from(new Set(allLogs
+            .filter(entry => !/^Leader .* re-confirmed\.$/.test(entry.activity))
+            .map(entry => entry.activity)));
+        filter.innerHTML = '<option value="all">All</option>' +
+            events.map(ev => `<option value="${ev}">${ev}</option>`).join('');
     }
 
     function renderActivityLogTable() {
         const logTable = document.getElementById('activity-log');
         const filterValue = document.getElementById('eventFilter').value;
-        let filtered = allLogs;
+        // Always filter out 'Leader ... re-confirmed.'
+        let filtered = allLogs.filter(entry => !/^Leader .* re-confirmed\.$/.test(entry.activity));
         if (filterValue !== 'all') {
-            filtered = allLogs.filter(entry => entry.activity === filterValue);
+            filtered = filtered.filter(entry => entry.activity === filterValue);
         }
         logTable.innerHTML = '';
         filtered.forEach(entry => {

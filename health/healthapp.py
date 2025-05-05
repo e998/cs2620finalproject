@@ -15,7 +15,7 @@ from app import db, socketio
 
 load_dotenv()
 
-healthapp = Blueprint('healthapp', __name__)
+healthapp = Blueprint('healthapp', __name__, template_folder='templates')
 
 # --- Metrics Storage ---
 api_metrics = defaultdict(lambda: {'count': 0, 'total_time': 0.0})
@@ -81,7 +81,6 @@ def get_activity_log():
     results = (
         db.session.query(Activity.activitytime, Activity.label)
         .order_by(Activity.activitytime.desc())
-        .limit(10)
         .all()
     )
     activities = [
