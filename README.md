@@ -53,6 +53,8 @@ pytest
 ```
 - This runs both sales app and health app tests.
 - Make sure your test database and environment variables are properly configured for testing.
+- <img width="456" alt="image" src="https://github.com/user-attachments/assets/2480f6ce-836c-4a8d-b7f1-7c9307fa2eb1" />
+
 
 ---
 
