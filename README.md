@@ -1,24 +1,68 @@
-# CS 2620 Final Project  
-## Esther An and Sammi Zhu
+# CS2620 Final Project
 
-Motivation and Design
-(What It Does)
+## Setup
 
-Our project involves two major implemented components. First, we built a distributed sales application titled DistSales (Fig. 3) where users can register an account (Fig. 1, 2) and list items for sale (Fig. 5, 6), accept proposals from buyers (Fig. 9, 10), chat with buyers on the messaging page of the application (Fig. 7, 8), and browse and make purchases (Fig. 4). To demonstrate our learning in this course, our sales application is implemented as a distributed system with persistent storage.
+1. **Clone the repository and navigate to the project root.**
 
-Second, we built a “distributed system health” application that provides insights that a system administrator may find useful for managing the sales application that may otherwise only appear to them in the terminal. After much deliberation regarding what would be helpful to know for a system administrator and through an iterative design process, for our system health application, we decided to provide the leader identity, a list of all connected clients (and the times at which they connected/disconnected, if applicable), the average completion time for each relevant function call (including for confirming the liveness of clients, activity log updates, and sales data updates), counts for the number of each function call, a count of sales made across all connected clients, several usage statistics, and a log of all activity on the sales application (Fig. 11, 12). The usage statistics include the total number of function calls, as well as an identification of the most-called and least-called endpoints, as well as the average, minimum, and maximum latency.
+2. **Install dependencies:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip3 install -r requirements.txt
+```
 
-Implementation
-(How It Does It)
+3. **Configure environment variables:**
+  - `SECRET_KEY` (for Flask session)
+  - `DATABASE_URL` (PostgreSQL connection string)
+  - `LEADER_NODE_URL` (for leader election)
+  - `HOST` and `PORT` (for app/health server binding, optional)
+  - `PEER_NODES` (for peer discovery)
+  - `MY_IP` (personal IP address) 
 
-Sales Application. Our sales application, DistSales, is a distributed system with persistent storage that allows users to connect from different machines. Servers run the application at a link of the form http://HOST:PORT, where HOST is the IP address of the machine running the server and PORT is the specified port number. Each active node runs an instance of the application, participating in leader election.
+- Separately, export `FLASK_APP=app:create_app`
+---
 
-Our implementation of leader election for our distributed system determines the leader by selecting the server with the lowest address. We decided on this custom implementation because it was a simple yet coherent and consistent method for leader election. We initially considered but ran into some difficulties setting up Raft or Paxos given our usage of Python Flask, as there were several local Python dependency issues. We implemented a heartbeat mechanism for checking in on all connected clients. Each node periodically sends HTTP GET requests to the heartbeat endpoints of all known peers, including itself, to determine which nodes remain alive, at a cadence of every three seconds. Once all living nodes are identified and sorted, as noted, the node with the lowest-value URL (alphanumerically) is elected to be the leader. This leader node is independently determined by every node, but we achieve consensus because all nodes use the same deterministic process to identify the leader given the same set of peers (including itself) that are currently alive. The set_leader function updates the identity of the leader in the database. If a leader is found to have failed and does not provide a heartbeat signal, the new leader is automatically elected with the method described above. When a new leader is elected, all nodes update their understanding of the leader and synchronize state. Any failed database operations are rolled back to prevent inconsistencies.
+## Running the Sales App
 
-To provide persistent storage, we work with a PostgreSQL database with separate tables for the users, products added to the marketplace, orders made, messages sent, offers proposed, clients connected, and activities on the sales application. We use SQLAlchemy, which is an open-source Python library for working with a SQL database with Python objects, and Flask-Migrate, an extension that handles database migrations that use SQLAlchemy for Flask applications. The PostgreSQL database is hosted remotely on Render. The API key to the PostgreSQL database is saved in the .env file. The leader is the only node with write access to the database, though all clients have read access. Since there exists a single leader as long as there are any active servers, exactly one node will have both read and write access to the database.
+The main sales web app is started from the project root:
+```bash
+python3 run.py
+```
+- By default, it runs on the host/port specified in your `.env` (or `10.250.244.76:5001`).
+- Access the app in your browser at `http://<HOST>:<PORT>`.
 
-All of the real-time functionality, such as the chat feature, uses Socket.IO, a library for bidirectional and event-based browser-server communication. We used this library over simple sockets because it better served our Flask application use case. We decided not to work with JSON or gRPC for communication because we valued the simplicity and usability of custom communication over sockets, as it also worked well with our decision to implement our application with the Python Flask framework.
+---
 
-Distributed System Health Application. Our distributed system health application lives outside of our sales application. To provide leader identity and client information in the distributed health application, we save each connected client in the persistent storage database and have a Boolean value for whether they are the leader, and also save the time at which they are elected to be the leader. Using the heartbeat mechanism, the system checks for all connected clients, and the disconnected time is updated if a node is found to be no longer alive. All database tables are initialized as models in shared/models.py. The shared folder is outside both app/ (for the sales application) and health/ (for the distributed system health application). Data is fetched from the order table in the persistent storage database to visually show the number of all recent sales, across all clients (Fig. 12). The activity log provides all recent activity across clients fetched from the activity table in persistent storage, listing the time at which the event occurred and the appropriate label for the event (i.e., whether a sale was made, a user logged in, or an item was listed, etc.) (Fig. 12).
+## Running the Health Dashboard
 
-Additional metrics beyond leader election and the sales and user activity were included as well. For example, we included an API latency by endpoint graph because we wanted to provide visibility into the average response time for each API endpoint, which would help to identify performance bottlenecks. Each API route has a custom @record_api_metrics (endpoint) decorator, and this decorator measures the time it takes for each request using time.perf_counter(). After the endpoint is finished, the decorator updates a global in-memory dictionary (api_metrics) with the total time spent and the call count for that endpoint. The /api/metrics endpoint aggregates this data, computes the average latency, and exposes it as a JSON object for the dashboard. We also included the API call count by endpoint because we wanted to track how frequently each API endpoint is called. This could help the system administrator or engineers understand traffic patterns, identify popular features, and spot potential misuse. For this feature, the same api_metrics dictionary stores a count for each endpoint, and is incremented on every request via the decorator. The /api/metrics endpoint returns these counts for the visualization, and the health dashboard fetches this data and displays it as a bar chart using Chart.js. We include usage statistics because we wanted to provide a high-level summary of API usage that describes the total number of calls and identifies the most frequently used endpoints. The /api/metrics endpoint also computes the total number of API calls across all endpoints and identifies the endpoint with the highest call count (most_called). These statistics are returned under a usage key in the metrics JSON object and displayed in the dashboard’s “Usage Statistics” card. We also added a tooltip for each metric to explain its purpose to provide some explanation for new users.
+The health dashboard is a separate Flask app:
+```bash
+python3 health/healthapp.py
+```
+- By default, it runs on the host/port specified in your `.env` (or fallback values).
+- Access the dashboard in your browser at `http://<HEALTH_NODE_URL>:<HEALTH_PORT>`.
+
+---
+
+## Running Tests
+
+All tests are located in the `tests/` directory and use `pytest`:
+```bash
+pytest
+```
+- This runs both sales app and health app tests.
+- Make sure your test database and environment variables are properly configured for testing.
+
+---
+
+## Troubleshooting
+- Ensure PostgreSQL and Redis are running and accessible.
+- If migrations are needed, use Flask-Migrate:
+  ```bash
+  flask db upgrade
+  ```
+- If you encounter issues with environment variables, double-check your `.env` file and restart your shell/app.
+
+---
+
+For further details, see code comments and docstrings throughout the codebase.
