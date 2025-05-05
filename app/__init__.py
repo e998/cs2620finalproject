@@ -25,6 +25,7 @@ def create_app(test_config=None):
     app = Flask(__name__)
     # Load default configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'changeme')
+    # We know this is bad but keeping this key here is the only way for someone else to test it without them having to configure an entire db themselves.
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://cs262_final_user:6uYZnPbZVd3bczQgRyeZqv53uehhp2bL@dpg-d02kh56uk2gs73ejhfj0-a.oregon-postgres.render.com/cs262_final')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
